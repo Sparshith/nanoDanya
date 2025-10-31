@@ -1,0 +1,15 @@
+[project]
+name = "chess-gpt"
+version = "0.1.0"
+description = "Minimal workflow for training a GPT model on SAN chess moves"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "torch",
+    "pyarrow",
+    "tokenizers",
+    "tiktoken"
+]
+
+[tool.uv]
+dev-dependencies = []
