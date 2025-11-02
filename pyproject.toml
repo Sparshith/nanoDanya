@@ -8,8 +8,10 @@ dependencies = [
     "torch",
     "pyarrow",
     "tokenizers",
-    "tiktoken"
+    "tiktoken",
+    "python-chess"
 ]
 
 [tool.uv]
 dev-dependencies = []
+
