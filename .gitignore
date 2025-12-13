@@ -1,3 +1,6 @@
 .DS_Store
 .ipynb_checkpoints/
 Archive/
+.jupyter_ystore.db
+.virtual_documents/
+__pycache__/
