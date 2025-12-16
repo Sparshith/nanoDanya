@@ -40,30 +40,38 @@ def nanogpt_iter(data, block_size, batch_size):
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu'))
-config = GPTConfig(sequence_len=context_length, vocab_size=vocab_size, n_layer=4, n_head=4, n_kv_head=4, n_embd=256)
+config = GPTConfig(sequence_len=context_length, vocab_size=vocab_size, n_layer=8, n_head=8, n_kv_head=4, n_embd=512)
 model = GPT(config).to(device)
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
 
+start_step = 1
 for ckpt_path in (
-    Path("data/processed/chess_min.pt"),
-    Path("data/chess_min.pt"),
-    Path("chess_min.pt"),
+    Path("/data/chess_min.pt"), # stored in modal volume
+    # Path("chess_min.pt"), # stored in local directory
 ):
     if ckpt_path.exists():
         state = torch.load(ckpt_path, map_location=device)
-        model.load_state_dict(state["model"])
-        print(f"Loaded checkpoint from {ckpt_path}")
-        break
+        saved_config = state.get('meta', {}).get('model_config', {})
+        if saved_config.get('n_layer') == config.n_layer and saved_config.get('n_embd') == config.n_embd:
+            model.load_state_dict(state['model'])
+            optimizer.load_state_dict(state['optimizer'])
+            start_step = state['step'] + 1
+            print(f"Loaded checkpoint from {ckpt_path}")
+            break
+        else:
+            print("Config mismatch, starting fresh")
+    else:
+        print("No checkpoint found, starting fresh")
 
 # In[16]:
 
 
 train_data = torch.from_numpy(train_tokens.astype(np.int64))
 val_data = torch.from_numpy(val_tokens.astype(np.int64))
-max_iters = 10000
-eval_interval = 50
+max_iters = 50000
+eval_interval = 100
 batch_size = 32
-for step in range(1, max_iters + 1):
+for step in range(start_step, max_iters + 1):
     xb_cpu, yb_cpu = nanogpt_iter(train_data, context_length, batch_size)
     xb = xb_cpu.to(device, non_blocking=True)
     yb = yb_cpu.to(device, non_blocking=True)
@@ -73,6 +81,7 @@ for step in range(1, max_iters + 1):
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     optimizer.step()
+    
     if step % eval_interval == 0 or step == 1:
         xb_val_cpu, yb_val_cpu = nanogpt_iter(val_data, context_length, batch_size)
         xb_val = xb_val_cpu.to(device, non_blocking=True)
@@ -83,7 +92,12 @@ for step in range(1, max_iters + 1):
         print(f'step {step:04d}/{max_iters} train {loss.item():.4f} val {val_loss.item():.4f}')
 
 
-# In[17]:
-
-
-torch.save({'model': model.state_dict(), 'meta': {'model_config': config.__dict__, 'tokenizer': meta}}, 'chess_min.pt')
+    if step % 1000 == 0:
+        checkpoint = {
+            'model': model.state_dict(),
+            'meta': {'model_config': config.__dict__, 'tokenizer': meta},
+            'optimizer': optimizer.state_dict(),
+            'step': step,
+        }
+        torch.save(checkpoint, '/data/chess_min.pt')
+        print(f'Saved checkpoint to chess_min.pt at step {step}')
