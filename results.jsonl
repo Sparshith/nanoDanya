@@ -1,0 +1,1 @@
+{"date": "2026-01-01", "model": "chess_min_gpu_large.pt", "opponent": "stockfish", "opponent_elo": 500, "games": 100, "win": 67, "loss": 3, "draw": 30, "win_rate": 0.82}

@@ -1,3 +1,5 @@
+.cursor/
+plans/
 agents.md
 .DS_Store
 .ipynb_checkpoints/
