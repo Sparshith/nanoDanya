@@ -48,7 +48,7 @@ def train():
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     subprocess.run(
-        ["python", "Train.py"],
+        ["python", "training/train.py"],
         check=True,
         cwd=project_root,
         env=env,
