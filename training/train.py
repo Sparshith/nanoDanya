@@ -2,9 +2,7 @@ import pickle
 import numpy as np
 from pathlib import Path
 import torch
-import sys
 
-sys.path.append(str((Path(__file__).parent.parent / "nanochat").resolve()))
 from nanochat.gpt import GPT, GPTConfig
 
 data_dir = Path(__file__).parent.parent / 'data/processed'

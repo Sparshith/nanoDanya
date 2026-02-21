@@ -1,8 +1,4 @@
 import torch
-import sys
-from pathlib import Path
-
-sys.path.append(str((Path(__file__).parent.parent / "nanochat").resolve()))
 from nanochat.gpt import GPT, GPTConfig
 from inference.kv_cache import KVCache
 import chess

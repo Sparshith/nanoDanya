@@ -2,15 +2,22 @@
 name = "chess-gpt"
 version = "0.1.0"
 description = "Minimal workflow for training a GPT model on SAN chess moves"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "torch",
     "pyarrow",
     "tokenizers",
     "tiktoken",
-    "python-chess"
+    "python-chess",
+    "tqdm",
+    "zstandard",
+    "requests",
+    "nanochat",
 ]
+
+[tool.uv.sources]
+nanochat = { path = "nanochat", editable = true }
 
 [tool.uv]
 dev-dependencies = []

@@ -1,12 +1,10 @@
 import torch
 import torch.nn.functional as F
-import sys
 import json
 import random
 from pathlib import Path
 from copy import deepcopy
 
-sys.path.append(str((Path(__file__).parent.parent.parent / "nanochat").resolve()))
 from nanochat.gpt import GPT, GPTConfig
 import chess
 

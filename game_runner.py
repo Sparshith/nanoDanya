@@ -1,5 +1,4 @@
 import torch
-import sys
 import json
 import uuid
 import time
@@ -8,7 +7,6 @@ from pathlib import Path
 from dataclasses import dataclass, asdict
 from datetime import datetime
 
-sys.path.append(str((Path(__file__).parent / "nanochat").resolve()))
 from nanochat.gpt import GPT, GPTConfig
 from inference.kv_cache import KVCache
 import chess
