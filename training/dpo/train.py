@@ -6,13 +6,13 @@ import random
 from pathlib import Path
 from copy import deepcopy
 
-sys.path.append(str((Path(__file__).parent.parent / "nanochat").resolve()))
+sys.path.append(str((Path(__file__).parent.parent.parent / "nanochat").resolve()))
 from nanochat.gpt import GPT, GPTConfig
 import chess
 
 # --- config ---
 model_path = "models/chess_L12_H6_E768.pt"
-data_path = "games/12L_dpo_data.jsonl"
+data_path = str(Path(__file__).parent / "games/12L_dpo_data.jsonl")
 output_path = "models/chess_L12_H6_E768_dpo.pt"
 lr = 1e-5
 beta = 0.5

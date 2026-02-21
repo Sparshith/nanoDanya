@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.append(str((Path(__file__).parent.parent / "nanochat").resolve()))
 from nanochat.gpt import GPT, GPTConfig
-from kv_cache import KVCache
+from inference.kv_cache import KVCache
 import chess
 import chess.pgn
 
