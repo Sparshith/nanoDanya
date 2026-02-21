@@ -1,4 +1,5 @@
 .cursor/
+.vscode/
 plans/
 agents.md
 .DS_Store
@@ -7,3 +8,10 @@ Archive/
 .jupyter_ystore.db
 .virtual_documents/
 __pycache__/
+.env
+arena/.env
+blog/
+puzzles/
+benchmark_results.html
+todo.md
+tolearn.md
