@@ -22,10 +22,10 @@ volume = modal.Volume.from_name("nanochess-data")
 @app.function(
     image=image,
     gpu="A10G",
-    timeout=60 * 60 * 6,
+    timeout=60 * 60 * 12,
     volumes={"/data": volume},
 )
-def train():
+def train(dataset: str, script: str):
     import os
     import subprocess
     import shutil
@@ -33,7 +33,7 @@ def train():
 
     project_root = Path("/root/project")
     volume_data = Path("/data")
-    local_data = project_root / "data" / "processed"
+    local_data = project_root / "data" / dataset
 
     local_data.parent.mkdir(parents=True, exist_ok=True)
     if local_data.exists():
@@ -43,12 +43,13 @@ def train():
             shutil.rmtree(local_data)
         else:
             raise FileExistsError(f"{local_data} already exists and is not a symlink")
-    local_data.symlink_to(volume_data, target_is_directory=True)
+    local_data.symlink_to(volume_data / dataset, target_is_directory=True)
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONPATH"] = str(project_root / "nanochat")
     subprocess.run(
-        ["python", "training/train.py"],
+        ["python", script],
         check=True,
         cwd=project_root,
         env=env,
@@ -59,5 +60,5 @@ def train():
 
 
 @app.local_entrypoint()
-def main():
-    train.remote()
+def main(dataset: str = "processed", script: str = "training/train.py"):
+    train.remote(dataset, script)
