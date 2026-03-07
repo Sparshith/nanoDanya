@@ -1,0 +1,9 @@
+data/
+models/
+puzzles/data/
+puzzle_games_ndjson.txt
+puzzle_metadata_full.txt
+experimentation/
+*.ipynb
+__pycache__/
+.git/
