@@ -12,7 +12,10 @@ __pycache__/
 arena/.env
 blog/
 puzzles/
-benchmark_results.html
+benchmark_results/
 todo.md
 tolearn.md
 arena/
+blog_draft.md
+CLAUDE.md
+data/
