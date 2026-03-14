@@ -25,7 +25,7 @@ volume = modal.Volume.from_name("nanochess-data")
     timeout=60 * 60 * 12,
     volumes={"/data": volume},
 )
-def train(dataset: str, script: str):
+def train(datasets: str, script: str):
     import os
     import subprocess
     import shutil
@@ -33,17 +33,18 @@ def train(dataset: str, script: str):
 
     project_root = Path("/root/project")
     volume_data = Path("/data")
-    local_data = project_root / "data" / dataset
 
-    local_data.parent.mkdir(parents=True, exist_ok=True)
-    if local_data.exists():
-        if local_data.is_symlink():
-            local_data.unlink()
-        elif local_data.is_dir():
-            shutil.rmtree(local_data)
-        else:
-            raise FileExistsError(f"{local_data} already exists and is not a symlink")
-    local_data.symlink_to(volume_data / dataset, target_is_directory=True)
+    for dataset in datasets.split(","):
+        local_data = project_root / "data" / dataset
+        local_data.parent.mkdir(parents=True, exist_ok=True)
+        if local_data.exists():
+            if local_data.is_symlink():
+                local_data.unlink()
+            elif local_data.is_dir():
+                shutil.rmtree(local_data)
+            else:
+                raise FileExistsError(f"{local_data} already exists and is not a symlink")
+        local_data.symlink_to(volume_data / dataset, target_is_directory=True)
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -60,5 +61,5 @@ def train(dataset: str, script: str):
 
 
 @app.local_entrypoint()
-def main(dataset: str = "processed", script: str = "training/train.py"):
-    train.remote(dataset, script)
+def main(datasets: str = "processed", script: str = "training/train.py"):
+    train.remote(datasets, script)
