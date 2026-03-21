@@ -61,5 +61,5 @@ def train(datasets: str, script: str):
 
 
 @app.local_entrypoint()
-def main(datasets: str = "processed", script: str = "training/train.py"):
-    train.remote(datasets, script)
+def main(datasets: str = "processed", script: str = "training/train.py", gpu: str = "A10G"):
+    train.with_options(gpu=gpu).remote(datasets, script)
