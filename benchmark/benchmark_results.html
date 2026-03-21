@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KV Cache Benchmark — nanoDanya</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,600;1,6..72,300&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0c;
+    --surface: #111114;
+    --border: #1e1e24;
+    --text: #e8e6e3;
+    --text-dim: #6b6a6f;
+    --accent: #c4f042;
+    --accent-dim: #c4f04218;
+    --red: #f04242;
+    --red-dim: #f0424218;
+    --bar-no-cache: #f04242;
+    --bar-kv-cache: #c4f042;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    padding: 60px 40px;
+    line-height: 1.6;
+  }
+
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  header {
+    margin-bottom: 64px;
+  }
+
+  h1 {
+    font-family: 'Newsreader', serif;
+    font-weight: 300;
+    font-size: 2.8rem;
+    letter-spacing: -0.03em;
+    margin-bottom: 12px;
+    line-height: 1.1;
+  }
+
+  h1 span {
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  .subtitle {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+
+  .verdict {
+    margin: 48px 0;
+    padding: 28px 32px;
+    border-left: 2px solid var(--accent);
+    background: linear-gradient(90deg, var(--accent-dim), transparent 70%);
+    font-family: 'Newsreader', serif;
+    font-size: 1.15rem;
+    font-weight: 300;
+    line-height: 1.7;
+    color: var(--text);
+  }
+
+  .verdict strong {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .scenarios {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin: 48px 0;
+  }
+
+  .scenario {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 32px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .scenario::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+  }
+
+  .scenario.cpu::before { background: var(--accent); }
+  .scenario.gpu::before { background: var(--text-dim); }
+
+  .scenario-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+
+  .scenario-title {
+    font-family: 'Newsreader', serif;
+    font-size: 1.4rem;
+    font-weight: 400;
+    margin-bottom: 24px;
+  }
+
+  .speedup {
+    font-size: 3.2rem;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .cpu .speedup { color: var(--accent); }
+  .gpu .speedup { color: var(--text-dim); }
+
+  .speedup-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+    margin-bottom: 32px;
+  }
+
+  .bar-group {
+    margin-bottom: 20px;
+  }
+
+  .bar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+
+  .bar-label {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+  }
+
+  .bar-value {
+    font-size: 0.7rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bar-track {
+    height: 28px;
+    background: var(--bg);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    position: absolute;
+    left: 0;
+    top: 0;
+    transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+    width: 0;
+  }
+
+  .bar-fill.no-cache { background: var(--bar-no-cache); opacity: 0.35; }
+  .bar-fill.kv-cache { background: var(--bar-kv-cache); opacity: 0.8; }
+  .gpu .bar-fill.kv-cache { background: var(--text-dim); opacity: 0.5; }
+  .gpu .bar-fill.no-cache { opacity: 0.25; }
+
+  .meta-row {
+    display: flex;
+    gap: 24px;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .meta-item {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+  }
+
+  .meta-item span {
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .per-move {
+    margin: 48px 0;
+  }
+
+  .per-move h2 {
+    font-family: 'Newsreader', serif;
+    font-weight: 300;
+    font-size: 1.3rem;
+    margin-bottom: 28px;
+  }
+
+  .move-grid {
+    display: grid;
+    grid-template-columns: 100px 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    font-size: 0.75rem;
+  }
+
+  .move-grid > div {
+    background: var(--surface);
+    padding: 14px 16px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .move-grid .col-header {
+    background: var(--bg);
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+    font-weight: 500;
+  }
+
+  .move-grid .row-label {
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 8px;
+    flex-shrink: 0;
+  }
+
+  .dot.no-cache { background: var(--bar-no-cache); opacity: 0.6; }
+  .dot.kv { background: var(--bar-kv-cache); }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  @media (max-width: 700px) {
+    body { padding: 32px 20px; }
+    h1 { font-size: 2rem; }
+    .scenarios { grid-template-columns: 1fr; }
+    .move-grid { font-size: 0.65rem; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>KV Cache <span>doesn't matter here</span></h1>
+    <div class="subtitle">nanoDanya chess model inference benchmark</div>
+  </header>
+
+  <div class="verdict">
+    KV cache delivers a <strong>4.12x speedup on CPU</strong>, but on the GPU that actually serves the model, the gain is a negligible <strong>1.11x</strong>. With sequences of only ~80 tokens, the T4 is so underutilized that kernel launch overhead dominates over the compute saved by caching.
+  </div>
+
+  <div class="scenarios">
+    <div class="scenario cpu">
+      <div class="scenario-label">Scenario 1</div>
+      <div class="scenario-title">CPU</div>
+      <div class="speedup">4.12x</div>
+      <div class="speedup-label">speedup with KV cache</div>
+
+      <div class="bar-group">
+        <div class="bar-header">
+          <span class="bar-label">No cache</span>
+          <span class="bar-value">1.375s</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill no-cache" data-width="100"></div>
+        </div>
+      </div>
+      <div class="bar-group">
+        <div class="bar-header">
+          <span class="bar-label">KV cache</span>
+          <span class="bar-value">0.334s</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill kv-cache" data-width="24.3"></div>
+        </div>
+      </div>
+
+      <div class="meta-row">
+        <div class="meta-item">model <span>chess_min_gpu</span></div>
+        <div class="meta-item">moves <span>199</span></div>
+      </div>
+    </div>
+
+    <div class="scenario gpu">
+      <div class="scenario-label">Scenario 2</div>
+      <div class="scenario-title">GPU (T4)</div>
+      <div class="speedup">1.11x</div>
+      <div class="speedup-label">speedup with KV cache</div>
+
+      <div class="bar-group">
+        <div class="bar-header">
+          <span class="bar-label">No cache</span>
+          <span class="bar-value">1.088s</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill no-cache" data-width="100"></div>
+        </div>
+      </div>
+      <div class="bar-group">
+        <div class="bar-header">
+          <span class="bar-label">KV cache</span>
+          <span class="bar-value">0.979s</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill kv-cache" data-width="89.9"></div>
+        </div>
+      </div>
+
+      <div class="meta-row">
+        <div class="meta-item">model <span>chess_min_gpu_large</span></div>
+        <div class="meta-item">moves <span>82</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="per-move">
+    <h2>Per-move latency</h2>
+    <div class="move-grid">
+      <div class="col-header"></div>
+      <div class="col-header">CPU</div>
+      <div class="col-header">GPU (T4)</div>
+
+      <div class="row-label"><span class="dot no-cache"></span>No cache</div>
+      <div>6.9 ms</div>
+      <div>13.3 ms</div>
+
+      <div class="row-label"><span class="dot kv"></span>KV cache</div>
+      <div>1.7 ms</div>
+      <div>11.9 ms</div>
+    </div>
+  </div>
+
+  <footer>
+    <span>nanoDanya / Feb 2026</span>
+    <span>moves verified identical across both methods</span>
+  </footer>
+
+</div>
+
+<script>
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      document.querySelectorAll('.bar-fill').forEach(bar => {
+        bar.style.width = bar.dataset.width + '%';
+      });
+    }, 200);
+  });
+</script>
+</body>
+</html>
