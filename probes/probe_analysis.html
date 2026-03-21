@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Probe Accuracy Analysis</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 40px; }
+h1 { color: #fff; font-size: 24px; margin-bottom: 4px; }
+.subtitle { color: #888; font-size: 14px; margin-bottom: 36px; }
+.charts { display: flex; flex-wrap: wrap; gap: 40px; }
+.chart-box { background: #16213e; border-radius: 12px; padding: 24px; width: 560px; }
+.chart-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.chart-desc { font-size: 12px; color: #888; margin-bottom: 16px; }
+canvas { display: block; }
+.stat-box { background: #16213e; border-radius: 12px; padding: 24px; margin-top: 32px; display: inline-flex; gap: 48px; }
+.stat { text-align: center; }
+.stat-val { font-size: 28px; font-weight: 700; color: #a8e6a0; }
+.stat-label { font-size: 12px; color: #888; margin-top: 4px; }
+</style></head><body>
+<h1>When does the model lose board state?</h1>
+<div class="subtitle">Layer 11 piece probe accuracy (occupied squares only) on validation set</div>
+
+<div class="stat-box">
+  <div class="stat"><div class="stat-val">85.2%</div><div class="stat-label">overall accuracy</div></div>
+  <div class="stat"><div class="stat-val">7906</div><div class="stat-label">positions evaluated</div></div>
+  <div class="stat"><div class="stat-val">66.3%</div><div class="stat-label">accuracy when in check (n=557)</div></div>
+  <div class="stat"><div class="stat-val">86.7%</div><div class="stat-label">accuracy when not in check (n=7349)</div></div>
+</div>
+
+<div class="charts" style="margin-top: 36px;">
+  <div class="chart-box">
+    <div class="chart-title">Accuracy by move number</div>
+    <div class="chart-desc">Does the model lose track of the board as the game goes on?</div>
+    <canvas id="moveChart" width="512" height="300"></canvas>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title">Accuracy by piece count</div>
+    <div class="chart-desc">Is the board harder to track with more pieces?</div>
+    <canvas id="pcountChart" width="512" height="300"></canvas>
+  </div>
+</div>
+
+<script>
+const moveData = [{"x": 0, "acc": 0.9999, "n": 500}, {"x": 5, "acc": 0.9964, "n": 500}, {"x": 10, "acc": 0.9898, "n": 499}, {"x": 15, "acc": 0.9753, "n": 489}, {"x": 20, "acc": 0.9648, "n": 481}, {"x": 25, "acc": 0.9347, "n": 477}, {"x": 30, "acc": 0.9109, "n": 468}, {"x": 35, "acc": 0.8892, "n": 435}, {"x": 40, "acc": 0.8629, "n": 420}, {"x": 45, "acc": 0.835, "n": 416}, {"x": 50, "acc": 0.8235, "n": 385}, {"x": 55, "acc": 0.8032, "n": 356}, {"x": 60, "acc": 0.7862, "n": 327}, {"x": 65, "acc": 0.7679, "n": 304}, {"x": 70, "acc": 0.7582, "n": 267}, {"x": 75, "acc": 0.7403, "n": 252}, {"x": 80, "acc": 0.7169, "n": 225}, {"x": 85, "acc": 0.6764, "n": 195}, {"x": 90, "acc": 0.6994, "n": 168}, {"x": 95, "acc": 0.6785, "n": 134}, {"x": 100, "acc": 0.6535, "n": 121}, {"x": 105, "acc": 0.6249, "n": 113}, {"x": 110, "acc": 0.6299, "n": 98}, {"x": 115, "acc": 0.6411, "n": 75}, {"x": 120, "acc": 0.5675, "n": 53}, {"x": 125, "acc": 0.5357, "n": 36}, {"x": 130, "acc": 0.5676, "n": 35}, {"x": 135, "acc": 0.3744, "n": 30}, {"x": 140, "acc": 0.4188, "n": 23}, {"x": 145, "acc": 0.1678, "n": 15}];
+const pcountData = [{"x": 2, "acc": 0.3423, "n": 37}, {"x": 4, "acc": 0.486, "n": 182}, {"x": 6, "acc": 0.6752, "n": 190}, {"x": 8, "acc": 0.6384, "n": 252}, {"x": 10, "acc": 0.6951, "n": 311}, {"x": 12, "acc": 0.7088, "n": 373}, {"x": 14, "acc": 0.7736, "n": 396}, {"x": 16, "acc": 0.7644, "n": 523}, {"x": 18, "acc": 0.798, "n": 446}, {"x": 20, "acc": 0.8151, "n": 500}, {"x": 22, "acc": 0.847, "n": 600}, {"x": 24, "acc": 0.8727, "n": 579}, {"x": 26, "acc": 0.9092, "n": 629}, {"x": 28, "acc": 0.9419, "n": 722}, {"x": 30, "acc": 0.9735, "n": 900}, {"x": 32, "acc": 0.9934, "n": 1266}];
+
+function drawChart(canvasId, data, xLabel, xKey) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const pad = { top: 20, right: 20, bottom: 44, left: 52 };
+  const cw = W - pad.left - pad.right, ch = H - pad.top - pad.bottom;
+
+  ctx.fillStyle = '#16213e';
+  ctx.fillRect(0, 0, W, H);
+
+  const xs = data.map(d => d[xKey]);
+  const ys = data.map(d => d.acc);
+  const ns = data.map(d => d.n);
+
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const yMin = Math.min(0.5, Math.min(...ys) - 0.05);
+  const yMax = 1.0;
+
+  function tx(x) { return pad.left + (x - xMin) / (xMax - xMin) * cw; }
+  function ty(y) { return pad.top + (1 - (y - yMin) / (yMax - yMin)) * ch; }
+
+  // grid lines
+  ctx.strokeStyle = '#2a3a5e';
+  ctx.lineWidth = 1;
+  for (let y = yMin; y <= yMax; y += 0.1) {
+    ctx.beginPath(); ctx.moveTo(pad.left, ty(y)); ctx.lineTo(W - pad.right, ty(y)); ctx.stroke();
+    ctx.fillStyle = '#666'; ctx.font = '11px system-ui'; ctx.textAlign = 'right';
+    ctx.fillText((y * 100).toFixed(0) + '%', pad.left - 8, ty(y) + 4);
+  }
+
+  // bars showing sample count (faint)
+  const maxN = Math.max(...ns);
+  const barW = cw / data.length * 0.6;
+  ctx.fillStyle = 'rgba(168, 230, 160, 0.08)';
+  data.forEach((d, i) => {
+    const bh = (d.n / maxN) * ch * 0.3;
+    ctx.fillRect(tx(d[xKey]) - barW/2, pad.top + ch - bh, barW, bh);
+  });
+
+  // line
+  ctx.strokeStyle = '#a8e6a0';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    const x = tx(d[xKey]), y = ty(d.acc);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // dots
+  data.forEach((d, i) => {
+    const x = tx(d[xKey]), y = ty(d.acc);
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#a8e6a0'; ctx.fill();
+    ctx.strokeStyle = '#16213e'; ctx.lineWidth = 1.5; ctx.stroke();
+  });
+
+  // x labels
+  ctx.fillStyle = '#666'; ctx.font = '11px system-ui'; ctx.textAlign = 'center';
+  data.forEach((d, i) => {
+    if (i % 2 === 0 || data.length <= 20)
+      ctx.fillText(d[xKey], tx(d[xKey]), H - pad.bottom + 16);
+  });
+  ctx.fillStyle = '#888'; ctx.font = '12px system-ui';
+  ctx.fillText(xLabel, pad.left + cw / 2, H - 4);
+
+  // n labels on hover area
+  ctx.fillStyle = '#555'; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+  data.forEach((d, i) => {
+    ctx.fillText('n=' + d.n, tx(d[xKey]), ty(d.acc) - 10);
+  });
+}
+
+drawChart('moveChart', moveData, 'Move number', 'x');
+drawChart('pcountChart', pcountData, 'Pieces on board', 'x');
+</script>
+</body></html>
