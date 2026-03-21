@@ -16,6 +16,12 @@ from nanochat.gpt import GPT, GPTConfig
 
 Do not use `sys.path` hacks to import nanochat.
 
+## Data
+
+Main dataset: `data/puzzle_games_ndjson.txt` (3.2M Lichess games with per-move Stockfish evals). Puzzle metadata mapping game IDs to puzzle positions: `data/puzzle_metadata.txt`.
+
+Other files in `data/` (raw/, processed/, puzzle_weighted/, eval/, etc.) are older/smaller datasets kept for reference.
+
 ## Modal Training
 
 Run training on Modal with:
