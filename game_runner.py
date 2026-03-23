@@ -36,6 +36,10 @@ class GameRecord:
     pgn: str
 
 
+def strip_san(move):
+    return move.rstrip('+#')
+
+
 def load_model(path, device):
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     config = GPTConfig(**ckpt["meta"]["model_config"])
@@ -53,7 +57,7 @@ def sample_with_tracking(logits, board, stoi, itos, temperature, forbid_eos=Fals
     raw_top1 = itos[raw_top1_idx]
     raw_top1_prob = raw_probs[raw_top1_idx].item()
 
-    legal_san = {board.san(mv) for mv in board.legal_moves}
+    legal_san = {strip_san(board.san(mv)) for mv in board.legal_moves}
     raw_top1_legal = raw_top1 in legal_san or raw_top1 == "<eos>"
 
     mask = torch.full((len(itos),), float("-inf"), device=logits.device)

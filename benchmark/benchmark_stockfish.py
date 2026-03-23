@@ -9,7 +9,7 @@ import chess
 import chess.engine
 import torch
 
-from game_runner import load_model, sample_with_tracking
+from game_runner import load_model, sample_with_tracking, strip_san
 from inference.kv_cache import KVCache
 
 
@@ -52,7 +52,7 @@ def play_vs_stockfish(model, config, stoi, itos, device, sf_path, elo,
             logits = model(x, kv_cache=kv_cache)
         else:
             result = engine.play(board, chess.engine.Limit(time=0.1))
-            san = board.san(result.move)
+            san = strip_san(board.san(result.move))
             board.push(result.move)
             moves.append(san)
             token_id = stoi.get(san)
