@@ -21,7 +21,7 @@ volume = modal.Volume.from_name("nanochess-data")
 
 @app.function(
     image=image,
-    gpu="A10G",
+    gpu="A100",
     timeout=60 * 60 * 12,
     volumes={"/data": volume},
 )
@@ -61,5 +61,5 @@ def train(datasets: str, script: str):
 
 
 @app.local_entrypoint()
-def main(datasets: str = "processed", script: str = "training/train.py", gpu: str = "A10G"):
+def main(datasets: str = "processed", script: str = "training/train.py", gpu: str = "A100"):
     train.with_options(gpu=gpu).remote(datasets, script)

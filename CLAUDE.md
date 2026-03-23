@@ -27,7 +27,7 @@ Other files in `data/` (raw/, processed/, puzzle_weighted/, eval/, etc.) are old
 Run training on Modal with:
 
 ```bash
-uv run modal run modal_train.py --datasets <dataset_names> --script <training_script>
+uv run modal run modal_train.py --datasets <dataset_names> --script <training_script> --gpu <gpu_type>
 ```
 
 Examples:
@@ -43,6 +43,6 @@ uv run modal run modal_train.py --datasets puzzle_weighted --script training/tra
 uv run modal run modal_train.py --datasets eval,puzzle_weighted --script training/train_eval.py
 ```
 
-`--datasets` is a comma-separated list of subdirectory names under `data/` (and matching volume paths). `--script` is the training script path relative to project root.
+`--datasets` is a comma-separated list of subdirectory names under `data/` (and matching volume paths). `--script` is the training script path relative to project root. `--gpu` selects the GPU type (default A100, use A10G for cheaper runs).
 
 Do not create separate modal_train files for different training runs. Always use the same `modal_train.py` with different arguments.
