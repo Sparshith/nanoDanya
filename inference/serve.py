@@ -1,12 +1,37 @@
 import modal
 
+from model_registry import resolve_model_ref
+
 app = modal.App("nanodanya-chess")
+
+SERVE_MODEL_REF = "baseline/l12/reference"
+SERVE_MODEL_PATH, _ = resolve_model_ref(SERVE_MODEL_REF)
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install("torch", "chess", "fastapi[standard]")
-    .add_local_file("models/chess_L12_H6_E768.pt", "/model/chess.pt")
+    .add_local_file(SERVE_MODEL_PATH, "/model/chess.pt")
 )
+
+
+def strip_san(move: str) -> str:
+    return move.rstrip("+#")
+
+
+def resolve_token_id(stoi: dict[str, int], san: str) -> int | None:
+    for candidate in (san, strip_san(san)):
+        token_id = stoi.get(candidate)
+        if token_id is not None:
+            return token_id
+
+    normalized = strip_san(san)
+    for token, idx in stoi.items():
+        if token.startswith("<"):
+            continue
+        if strip_san(token) == normalized:
+            return idx
+
+    return None
 
 
 @app.cls(
@@ -143,17 +168,21 @@ class ChessModel:
             board.push_san(move)
             tokens.append(move)
 
-        token_ids = [self.stoi[t] for t in tokens if t in self.stoi]
+        token_ids = []
+        for token in tokens:
+            token_id = resolve_token_id(self.stoi, token)
+            if token_id is not None:
+                token_ids.append(token_id)
         if not token_ids:
             token_ids = [self.stoi["<bos>"]]
 
         x = torch.tensor(token_ids, device="cuda")[None, :]
         logits = self.model(x[:, -self.config.sequence_len:])
 
-        legal_san = {board.san(mv) for mv in board.legal_moves}
+        legal_san = {strip_san(board.san(mv)) for mv in board.legal_moves}
         mask = torch.full((len(self.itos),), float("-inf"), device="cuda")
         for token, idx in self.stoi.items():
-            if token in legal_san:
+            if token != "<bos>" and strip_san(token) in legal_san:
                 mask[idx] = logits[0, -1, idx]
 
         if temperature > 0:

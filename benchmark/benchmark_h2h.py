@@ -3,8 +3,10 @@ import time
 import torch
 import chess
 
+from chess_token_utils import resolve_token_id
 from game_runner import load_model, sample_with_tracking
 from inference.kv_cache import KVCache
+from model_registry import model_ref_help
 
 
 @torch.inference_mode()
@@ -39,7 +41,7 @@ def play_h2h(white_model, white_config, white_stoi, white_itos,
             x_w = next_id.view(1, 1).to(device)
             logits_w = white_model(x_w, kv_cache=white_cache)
             # feed to black
-            tid = black_stoi.get(next_token)
+            tid = resolve_token_id(black_stoi, next_token)
             if tid is None:
                 break
             x_b = torch.tensor([[tid]], device=device)
@@ -54,7 +56,7 @@ def play_h2h(white_model, white_config, white_stoi, white_itos,
             x_b = next_id.view(1, 1).to(device)
             logits_b = black_model(x_b, kv_cache=black_cache)
             # feed to white
-            tid = white_stoi.get(next_token)
+            tid = resolve_token_id(white_stoi, next_token)
             if tid is None:
                 break
             x_w = torch.tensor([[tid]], device=device)
@@ -71,8 +73,8 @@ def play_h2h(white_model, white_config, white_stoi, white_itos,
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-a", default="models/chess_weighted_L12_H6_E768.pt")
-    parser.add_argument("--model-b", default="models/chess_eval_L12_H6_E768.pt")
+    parser.add_argument("--model-a", default="weighted/l12/reference", help=model_ref_help())
+    parser.add_argument("--model-b", default="eval-head/l12/reference", help=model_ref_help())
     parser.add_argument("--games", type=int, default=50)
     parser.add_argument("--temperature", type=float, default=0.8)
     args = parser.parse_args()

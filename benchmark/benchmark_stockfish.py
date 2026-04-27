@@ -9,8 +9,10 @@ import chess
 import chess.engine
 import torch
 
-from game_runner import load_model, sample_with_tracking, strip_san
+from chess_token_utils import resolve_token_id, strip_san
+from game_runner import load_model, sample_with_tracking
 from inference.kv_cache import KVCache
+from model_registry import model_ref_help
 
 
 @dataclass
@@ -52,10 +54,10 @@ def play_vs_stockfish(model, config, stoi, itos, device, sf_path, elo,
             logits = model(x, kv_cache=kv_cache)
         else:
             result = engine.play(board, chess.engine.Limit(time=0.1))
-            san = strip_san(board.san(result.move))
+            san = board.san(result.move)
             board.push(result.move)
-            moves.append(san)
-            token_id = stoi.get(san)
+            moves.append(strip_san(san))
+            token_id = resolve_token_id(stoi, san)
             if token_id is None:
                 termination = "oov_stockfish"
                 break
@@ -91,7 +93,7 @@ def play_vs_stockfish(model, config, stoi, itos, device, sf_path, elo,
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="models/chess_weighted_L12_H6_E768.pt")
+    parser.add_argument("--model", default="weighted/l12/reference", help=model_ref_help())
     parser.add_argument("--stockfish", default="/opt/homebrew/bin/fairy-stockfish")
     parser.add_argument("--elo", type=int, default=500)
     parser.add_argument("--games", type=int, default=100)

@@ -12,6 +12,15 @@ from inference.kv_cache import KVCache
 import chess
 import chess.pgn
 
+from model_registry import model_ref_help, resolve_model_ref
+from chess_token_utils import (
+    normalized_legal_sans,
+    resolve_token_id,
+    strip_san,
+    token_is_legal_prediction,
+    token_is_playable,
+)
+
 
 @dataclass
 class MoveStats:
@@ -35,13 +44,9 @@ class GameRecord:
     num_moves: int
     pgn: str
 
-
-def strip_san(move):
-    return move.rstrip('+#')
-
-
 def load_model(path, device):
-    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    model_path, _ = resolve_model_ref(path)
+    ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
     config = GPTConfig(**ckpt["meta"]["model_config"])
     model = GPT(config).eval()
     model.load_state_dict(ckpt["model"])
@@ -57,18 +62,12 @@ def sample_with_tracking(logits, board, stoi, itos, temperature, forbid_eos=Fals
     raw_top1 = itos[raw_top1_idx]
     raw_top1_prob = raw_probs[raw_top1_idx].item()
 
-    legal_san = {strip_san(board.san(mv)) for mv in board.legal_moves}
-    raw_top1_legal = raw_top1 in legal_san or raw_top1 == "<eos>"
+    legal_san = normalized_legal_sans(board)
+    raw_top1_legal = token_is_legal_prediction(raw_top1, legal_san)
 
     mask = torch.full((len(itos),), float("-inf"), device=logits.device)
     for token, idx in stoi.items():
-        if token == "<bos>":
-            continue
-        elif token == "<eos>":
-            if forbid_eos:
-                continue
-            mask[idx] = logits[idx]
-        elif token in legal_san:
+        if token_is_playable(token, legal_san, allow_eos=not forbid_eos):
             mask[idx] = logits[idx]
 
     filtered = torch.softmax(mask / temperature, dim=-1)
@@ -117,7 +116,12 @@ def play_games(model, config, stoi, itos, device, model_path, n_games, batch_siz
                prompt="<bos>", temperature=0.8, max_moves=200, max_eos=5):
     all_records = []
     prompt_tokens = prompt.strip().split()
-    prompt_ids = [stoi[token] for token in prompt_tokens]
+    prompt_ids = []
+    for token in prompt_tokens:
+        token_id = resolve_token_id(stoi, token)
+        if token_id is None:
+            raise KeyError(f"Prompt token {token!r} is not in the tokenizer")
+        prompt_ids.append(token_id)
     prompt_moves = [t for t in prompt_tokens if t not in {"<bos>", "<eos>"}]
     prompt_move_count = len(prompt_moves)
     eos_id = stoi["<eos>"]
@@ -145,7 +149,6 @@ def play_games(model, config, stoi, itos, device, model_path, n_games, batch_siz
 
         generated = [prompt_tokens[:] for _ in range(chunk_size)]
         move_stats = [[] for _ in range(chunk_size)]
-        eos_counts = [0] * chunk_size
         finished = [False] * chunk_size
         terminations = [""] * chunk_size
         results = ["*"] * chunk_size
@@ -169,17 +172,15 @@ def play_games(model, config, stoi, itos, device, model_path, n_games, batch_siz
                 game_logits = logits[i, -1, :]
                 next_id, next_token, stats = sample_with_tracking(
                     game_logits, boards[i], stoi, itos, temperature,
-                    forbid_eos=(eos_counts[i] >= max_eos)
+                    forbid_eos=False,
                 )
 
                 move_stats[i].append(asdict(stats))
                 generated[i].append(next_token)
 
                 if next_token == "<eos>":
-                    eos_counts[i] += 1
-                    if eos_counts[i] >= max_eos:
-                        finished[i] = True
-                        terminations[i] = "eos_limit"
+                    finished[i] = True
+                    terminations[i] = "eos"
 
                 next_ids.append(next_id.item())
 
@@ -270,7 +271,7 @@ def print_summary(games):
 
 def main():
     parser = argparse.ArgumentParser(description="Run chess games with nanoDanya model")
-    parser.add_argument("--model", required=True)
+    parser.add_argument("--model", required=True, help=model_ref_help())
     parser.add_argument("--n-games", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--temperature", type=float, default=0.8)
