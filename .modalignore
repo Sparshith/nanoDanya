@@ -7,3 +7,16 @@ experimentation/
 *.ipynb
 __pycache__/
 .git/
+.venv/
+.playwright-cli/
+.pytest_cache/
+.vscode/
+.claude/
+.codex/
+.cursor/
+.ipynb_checkpoints/
+output/
+results.jsonl
+benchmark/*.jsonl
+benchmark/*.html
+probes/*.html
