@@ -29,6 +29,7 @@ CLAUDE.md
 data/
 models/
 scratchpad/
+knowledge/
 benchmark/*.jsonl
 benchmark/*.html
 probes/*.html
