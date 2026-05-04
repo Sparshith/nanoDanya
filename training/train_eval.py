@@ -57,8 +57,8 @@ eval_head = nn.Linear(config.n_embd, 1, bias=False).to(device)
 nn.init.zeros_(eval_head.weight)
 
 # load pretrained checkpoint
-pretrained_path = Path(__file__).parent.parent / 'models' / 'chess_weighted_L12_H6_E768.pt'
-ckpt_name = f"chess_eval_L{config.n_layer}_H{config.n_head}_E{config.n_embd}.pt"
+pretrained_path = Path(__file__).parent.parent / 'models' / 'chess_puzzle_weighted_L12_H6_E768.pt'
+ckpt_name = f"chess_weighted_eval_ft_L{config.n_layer}_H{config.n_head}_E{config.n_embd}.pt"
 resume_optimizer = None
 
 ckpt_path = Path(f"/data/eval/{ckpt_name}")
@@ -81,7 +81,7 @@ else:
 
 if ckpt_path is None:
     start_step = 1
-    for path in (pretrained_path, Path("/data/puzzle_weighted/chess_weighted_L12_H6_E768.pt")):
+    for path in (pretrained_path, Path("/data/puzzle_weighted/chess_puzzle_weighted_L12_H6_E768.pt")):
         if path.exists():
             state = torch.load(path, map_location=device, weights_only=False)
             sd = {k.replace('_orig_mod.', ''): v for k, v in state['model'].items()}

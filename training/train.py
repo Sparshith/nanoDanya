@@ -1,3 +1,4 @@
+import os
 import pickle
 import numpy as np
 from pathlib import Path
@@ -5,12 +6,15 @@ import torch
 
 from nanochat.gpt import GPT, GPTConfig
 
-data_dir = Path(__file__).parent.parent / 'data/processed'
+dataset_dir_name = os.getenv("DATASET_DIR", "processed").strip() or "processed"
+data_dir = Path(__file__).parent.parent / "data" / dataset_dir_name
 meta = pickle.loads((data_dir / 'meta.pkl').read_bytes())
 vocab_size = meta['vocab_size']
 context_length = meta['context_length']
 train_tokens = np.fromfile(data_dir / 'train.bin', dtype=np.uint16)
 val_tokens = np.fromfile(data_dir / 'val.bin', dtype=np.uint16)
+print(f"dataset: {dataset_dir_name}")
+print(f"train: {len(train_tokens):,} tokens, val: {len(val_tokens):,} tokens")
 
 
 def nanogpt_iter(data, block_size, batch_size):
@@ -26,31 +30,38 @@ config = GPTConfig(sequence_len=context_length, vocab_size=vocab_size, n_layer=1
 model = GPT(config).to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
 
-ckpt_name = f"chess_L{config.n_layer}_H{config.n_head}_E{config.n_embd}.pt"
+default_ckpt_name = (
+    f"chess_L{config.n_layer}_H{config.n_head}_E{config.n_embd}.pt"
+    if dataset_dir_name == "processed"
+    else f"chess_{dataset_dir_name}_L{config.n_layer}_H{config.n_head}_E{config.n_embd}.pt"
+)
+ckpt_name = os.getenv("CKPT_NAME", default_ckpt_name)
+if dataset_dir_name == "processed" and "CKPT_NAME" not in os.environ:
+    ckpt_path = Path(f"/data/{ckpt_name}")
+else:
+    ckpt_path = Path("/data") / dataset_dir_name / ckpt_name
+ckpt_path.parent.mkdir(parents=True, exist_ok=True)
 
 start_step = 1
-for ckpt_path in (
-    Path(f"/data/{ckpt_name}"),
-):
-    if ckpt_path.exists():
-        state = torch.load(ckpt_path, map_location=device)
-        saved_config = state.get('meta', {}).get('model_config', {})
-        if saved_config.get('n_layer') == config.n_layer and saved_config.get('n_embd') == config.n_embd:
-            model.load_state_dict(state['model'])
-            optimizer.load_state_dict(state['optimizer'])
-            start_step = state['step'] + 1
-            print(f"Loaded checkpoint from {ckpt_path}")
-            break
-        else:
-            print("Config mismatch, starting fresh")
+if ckpt_path.exists():
+    state = torch.load(ckpt_path, map_location=device)
+    saved_config = state.get('meta', {}).get('model_config', {})
+    if saved_config.get('n_layer') == config.n_layer and saved_config.get('n_embd') == config.n_embd:
+        model.load_state_dict(state['model'])
+        optimizer.load_state_dict(state['optimizer'])
+        start_step = state['step'] + 1
+        print(f"Loaded checkpoint from {ckpt_path}")
     else:
-        print("No checkpoint found, starting fresh")
+        print("Config mismatch, starting fresh")
+else:
+    print("No checkpoint found, starting fresh")
 
 train_data = torch.from_numpy(train_tokens.astype(np.int64))
 val_data = torch.from_numpy(val_tokens.astype(np.int64))
-max_iters = 50000
-eval_interval = 100
-batch_size = 32
+max_iters = int(os.getenv("MAX_ITERS", "50000"))
+eval_interval = int(os.getenv("EVAL_INTERVAL", "100"))
+ckpt_interval = int(os.getenv("CKPT_INTERVAL", "1000"))
+batch_size = int(os.getenv("BATCH_SIZE", "32"))
 
 for step in range(start_step, max_iters + 1):
     xb_cpu, yb_cpu = nanogpt_iter(train_data, context_length, batch_size)
@@ -72,12 +83,12 @@ for step in range(start_step, max_iters + 1):
             val_loss = torch.nn.functional.cross_entropy(logits_val.view(-1, logits_val.size(-1)), yb_val.view(-1))
         print(f'step {step:04d}/{max_iters} train {loss.item():.4f} val {val_loss.item():.4f}')
 
-    if step % 1000 == 0:
+    if step % ckpt_interval == 0:
         checkpoint = {
             'model': model.state_dict(),
             'meta': {'model_config': config.__dict__, 'tokenizer': meta},
             'optimizer': optimizer.state_dict(),
             'step': step,
         }
-        torch.save(checkpoint, f'/data/{ckpt_name}')
-        print(f'Saved checkpoint to {ckpt_name} at step {step}')
+        torch.save(checkpoint, ckpt_path)
+        print(f'Saved checkpoint to {ckpt_path} at step {step}')
