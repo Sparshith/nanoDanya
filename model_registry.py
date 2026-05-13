@@ -9,6 +9,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 MODELS_DIR = PROJECT_ROOT / "models"
+VOLUME_ROOT = Path("/data")
 
 
 @dataclass(frozen=True)
@@ -16,12 +17,13 @@ class ModelSpec:
     aliases: tuple[str, ...]
     path: str
     family: str
-    lineage: str
-    role: str
+    data_source: str
+    scale: str
+    arch: str
     objective: str
     dataset: str
-    size: str
-    training_kind: str
+    status: str
+    init: str = "scratch"
     base_model: str | None = None
     tags: tuple[str, ...] = ()
     notes: str = ""
@@ -36,167 +38,170 @@ class ModelSpec:
 
     @property
     def absolute_path(self) -> Path:
-        return PROJECT_ROOT / self.path
+        path = Path(self.path)
+        if path.is_absolute():
+            return path
+
+        project_path = PROJECT_ROOT / path
+        if project_path.exists():
+            return project_path
+
+        volume_path = VOLUME_ROOT / path
+        if volume_path.exists():
+            return volume_path
+
+        return project_path
 
 
 MODEL_REGISTRY = (
     ModelSpec(
-        aliases=("baseline/l4/cpu",),
-        path="models/chess_L4_H4_E256.pt",
-        family="baseline",
-        lineage="baseline",
-        role="small reference checkpoint",
-        objective="plain next-token SAN prediction",
-        dataset="processed",
-        size="L4 H4 E256",
-        training_kind="pretrain",
-        tags=("small", "legacy", "cpu-era"),
-        notes="Earliest small baseline checkpoint.",
-    ),
-    ModelSpec(
-        aliases=("baseline/l4/gpu",),
-        path="models/chess_L4_H4_E256_gpu.pt",
-        family="baseline",
-        lineage="baseline",
-        role="small GPU-trained checkpoint",
-        objective="plain next-token SAN prediction",
-        dataset="processed",
-        size="L4 H4 E256",
-        training_kind="pretrain",
-        tags=("small", "legacy", "gpu"),
-        notes="GPU variant of the small baseline line.",
-    ),
-    ModelSpec(
-        aliases=("baseline/l8/reference",),
-        path="models/chess_L8_H8_E512.pt",
-        family="baseline",
-        lineage="baseline",
-        role="mid-size baseline reference",
-        objective="plain next-token SAN prediction",
-        dataset="processed",
-        size="L8 H8 E512",
-        training_kind="pretrain",
-        tags=("medium", "legacy", "reference"),
-        notes="Scale-up baseline between the small and large plain next-token models.",
-    ),
-    ModelSpec(
-        aliases=("baseline/l12/reference", "baseline/reference"),
+        aliases=("plain/games-500k", "plain/games-500k/l12"),
         path="models/chess_L12_H6_E768.pt",
-        family="baseline",
-        lineage="baseline",
-        role="large plain next-token reference",
-        objective="plain next-token SAN prediction",
+        family="plain",
+        data_source="games",
+        scale="500k",
+        arch="L12_H6_E768",
+        objective="next-token SAN",
         dataset="processed",
-        size="L12 H6 E768",
-        training_kind="pretrain",
-        tags=("large", "reference", "legacy"),
-        notes="Main plain next-token baseline used by several older scripts.",
+        status="active",
+        tags=("games", "500k", "l12"),
+        notes="Main normal-game baseline. The unsuffixed alias resolves to the L12 architecture.",
     ),
     ModelSpec(
-        aliases=(
-            "puzzle-weighted/l12/reference",
-            "puzzle-weighted/reference",
-        ),
-        path="models/chess_puzzle_weighted_L12_H6_E768.pt",
-        family="puzzle-weighted",
-        lineage="puzzle-weighted",
-        role="puzzle-derived tactical-weighted reference",
-        objective="weighted next-token SAN prediction",
-        dataset="puzzle_weighted",
-        size="L12 H6 E768",
-        training_kind="pretrain",
-        tags=("puzzle-weighted", "tactical", "dirtier-legality"),
-        notes="Weights emphasize high-swing puzzle-derived positions.",
+        aliases=("plain/games-500k/l8",),
+        path="archive/checkpoints_2026_05_11/chess_min.pt",
+        family="plain",
+        data_source="games",
+        scale="500k",
+        arch="L8_H8_E512",
+        objective="next-token SAN",
+        dataset="processed",
+        status="archived",
+        tags=("games", "500k", "l8", "archived"),
+        notes="Older L8 normal-game checkpoint, historically named chess_min.pt.",
     ),
     ModelSpec(
-        aliases=("puzzle-plain/l12/reference", "puzzle-plain/reference"),
+        aliases=("plain/games-3m", "plain/games-3m/l12"),
+        path="models/chess_actual_3m_uniform_L12_H6_E768.pt",
+        family="plain",
+        data_source="games",
+        scale="3m",
+        arch="L12_H6_E768",
+        objective="next-token SAN",
+        dataset="actual_3m",
+        status="active",
+        tags=("games", "3m", "l12"),
+        notes="Normal-game 3M scale run.",
+    ),
+    ModelSpec(
+        aliases=("plain/games-5m", "plain/games-5m/l12"),
+        path="actual_5m/chess_actual_5m_uniform_L12_H6_E768_best.pt",
+        family="plain",
+        data_source="games",
+        scale="5m",
+        arch="L12_H6_E768",
+        objective="next-token SAN",
+        dataset="actual_5m",
+        status="active",
+        tags=("games", "5m", "l12", "best"),
+        notes="Normal-game 5M best checkpoint.",
+    ),
+    ModelSpec(
+        aliases=("plain/puzzles-5m", "plain/puzzles-5m/l12"),
         path="models/chess_puzzle_plain_L12_H6_E768.pt",
-        family="puzzle-plain",
-        lineage="puzzle-plain",
-        role="large-data plain next-token control",
-        objective="plain next-token SAN prediction on the puzzle-derived corpus",
+        family="plain",
+        data_source="puzzles",
+        scale="5m",
+        arch="L12_H6_E768",
+        objective="next-token SAN",
         dataset="puzzle_weighted",
-        size="L12 H6 E768",
-        training_kind="pretrain",
-        tags=("ablation", "large-data", "plain-objective"),
-        notes="Control line for separating larger puzzle-derived data from the effect of puzzle weighting.",
+        status="active",
+        tags=("puzzles", "5m", "l12"),
+        notes="Plain objective on the full puzzle-derived corpus.",
     ),
     ModelSpec(
-        aliases=("puzzle-plain/l12/500k", "puzzle-plain/500k"),
+        aliases=("plain/puzzles-500k", "plain/puzzles-500k/l12"),
         path="models/chess_puzzle_plain_500k_L12_H6_E768_best.pt",
-        family="puzzle-plain",
-        lineage="puzzle-plain-500k",
-        role="500k-game puzzle-derived plain ablation",
-        objective="plain next-token SAN prediction on a 500k-game puzzle-derived subset",
-        dataset="puzzle_weighted_500k",
-        size="L12 H6 E768",
-        training_kind="pretrain",
-        tags=("ablation", "500k", "plain-objective"),
-        notes="Planned size-matched ablation against the larger puzzle-derived plain run.",
+        family="plain",
+        data_source="puzzles",
+        scale="500k",
+        arch="L12_H6_E768",
+        objective="next-token SAN",
+        dataset="puzzle_highrated_500k",
+        status="active",
+        tags=("puzzles", "500k", "high-rated", "l12", "best"),
+        notes="Rebuilt high-rated 500k puzzle slice. Replaces the old arbitrary 500k puzzle checkpoint.",
     ),
     ModelSpec(
-        aliases=("middlegame-ft/l12/reference", "middlegame-ft/reference"),
+        aliases=("weighted/puzzles-5m", "weighted/puzzles-5m/l12"),
+        path="archive/checkpoints_2026_05_11/puzzle_weighted/chess_puzzle_weighted_L12_H6_E768.pt",
+        family="weighted",
+        data_source="puzzles",
+        scale="5m",
+        arch="L12_H6_E768",
+        objective="weighted next-token SAN",
+        dataset="puzzle_weighted",
+        status="archived",
+        tags=("puzzles", "5m", "weighted", "l12", "archived"),
+        notes="Weighted objective on the full puzzle-derived corpus.",
+    ),
+    ModelSpec(
+        aliases=("weighted/middlegame-ft", "weighted/middlegame-ft/l12"),
         path="models/chess_middlegame_ft_L12_H6_E768.pt",
-        family="middlegame-ft",
-        lineage="middlegame-ft",
-        role="middlegame-weighted fine-tune",
-        objective="weighted next-token SAN prediction on middlegame positions",
+        family="weighted",
+        data_source="middlegame",
+        scale="ft",
+        arch="L12_H6_E768",
+        objective="weighted next-token SAN",
         dataset="processed + middlegame_weighted",
-        size="L12 H6 E768",
-        training_kind="fine-tune",
-        base_model="baseline/l12/reference",
-        tags=("middlegame", "fine-tune", "experimental"),
-        notes="Fine-tunes the baseline checkpoint using middlegame-focused token weights.",
+        status="local-only",
+        init="fine-tune",
+        base_model="plain/games-500k",
+        tags=("middlegame", "weighted", "fine-tune", "l12"),
+        notes="Middlegame-weighted fine-tune from the normal-game baseline.",
     ),
     ModelSpec(
-        aliases=(
-            "weighted-eval-ft/l12/reference",
-            "weighted-eval-ft/reference",
-        ),
-        path="models/chess_weighted_eval_ft_L12_H6_E768.pt",
-        family="weighted-eval-ft",
-        lineage="puzzle-weighted-eval-ft",
-        role="puzzle-weighted backbone with eval fine-tuning",
-        objective="move loss plus scalar eval fine-tuning",
-        dataset="eval",
-        size="L12 H6 E768",
-        training_kind="fine-tune",
-        base_model="puzzle-weighted/l12/reference",
-        tags=("weighted-eval-ft", "experimental"),
-        notes="Starts from the puzzle-weighted checkpoint, adds a scalar eval head, and fine-tunes the upper backbone.",
-    ),
-    ModelSpec(
-        aliases=(
-            "eval-aware/v1/best",
-            "eval-aware/clean-baseline",
-        ),
+        aliases=("eval-aware/v1", "eval-aware/v1/l12"),
         path="models/chess_eval_aware_v1_L12_H6_E768_best.pt",
         family="eval-aware",
-        lineage="eval-aware-v1",
-        role="cleaner eval-aware checkpoint",
-        objective="random-init move+eval training, v1 best checkpoint",
+        data_source="eval",
+        scale="v1",
+        arch="L12_H6_E768",
+        objective="move loss + eval objective",
         dataset="eval",
-        size="L12 H6 E768",
-        training_kind="random-init",
-        tags=("cleaner-legality", "eval-aware", "best"),
-        notes="Older random-init eval-aware checkpoint; cleaner raw legality than v2 in saved logs.",
+        status="local-only",
+        tags=("eval", "v1", "l12", "best"),
+        notes="Older random-init eval-aware checkpoint.",
     ),
     ModelSpec(
-        aliases=(
-            "eval-aware/v2/best",
-            "eval-aware/latest",
-        ),
-        path="models/chess_eval_aware_v2_L12_H6_E768_best.pt",
+        aliases=("eval-aware/weighted-ft", "eval-aware/weighted-ft/l12"),
+        path="archive/checkpoints_2026_05_11/eval/chess_weighted_eval_ft_L12_H6_E768.pt",
         family="eval-aware",
-        lineage="eval-aware-v2",
-        role="latest local eval-aware checkpoint",
-        objective="eval-aware move+eval training, v2 best combined checkpoint",
+        data_source="eval",
+        scale="weighted-ft",
+        arch="L12_H6_E768",
+        objective="move loss + scalar eval fine-tune",
         dataset="eval",
-        size="L12 H6 E768",
-        training_kind="continued",
-        base_model="eval-aware/v1/best",
-        tags=("latest-local", "eval-aware", "best"),
-        notes="Latest local eval-aware checkpoint; stronger in some settings, worse raw legality than v1.",
+        status="archived",
+        init="fine-tune",
+        base_model="weighted/puzzles-5m",
+        tags=("eval", "weighted", "fine-tune", "l12", "archived"),
+        notes="Puzzle-weighted checkpoint fine-tuned with scalar eval supervision.",
+    ),
+    ModelSpec(
+        aliases=("eval-aware/v2", "eval-aware/v2/l12"),
+        path="archive/checkpoints_2026_05_11/eval/chess_eval_aware_v2_L12_H6_E768_best.pt",
+        family="eval-aware",
+        data_source="eval",
+        scale="v2",
+        arch="L12_H6_E768",
+        objective="move loss + eval objective",
+        dataset="eval",
+        status="archived",
+        init="continued",
+        base_model="eval-aware/v1",
+        tags=("eval", "v2", "l12", "best", "archived"),
+        notes="Archived eval-aware v2 best checkpoint. No unstable latest alias.",
     ),
 )
 
@@ -206,12 +211,19 @@ FILENAME_INDEX = {spec.filename: spec for spec in MODEL_REGISTRY}
 PATH_INDEX = {str(spec.absolute_path.resolve()): spec for spec in MODEL_REGISTRY}
 
 
-def list_models(*, family: str | None = None, tag: str | None = None) -> list[ModelSpec]:
+def list_models(
+    *,
+    family: str | None = None,
+    tag: str | None = None,
+    status: str | None = None,
+) -> list[ModelSpec]:
     specs = list(MODEL_REGISTRY)
     if family is not None:
         specs = [spec for spec in specs if spec.family == family]
     if tag is not None:
         specs = [spec for spec in specs if tag in spec.tags]
+    if status is not None:
+        specs = [spec for spec in specs if spec.status == status]
     return specs
 
 
@@ -221,9 +233,6 @@ def get_model_spec(ref: str | Path) -> ModelSpec | None:
         return ALIAS_INDEX[ref_str]
 
     ref_path = Path(ref_str)
-    if ref_path.name in FILENAME_INDEX:
-        return FILENAME_INDEX[ref_path.name]
-
     if ref_path.is_absolute():
         return PATH_INDEX.get(str(ref_path.resolve()))
 
@@ -234,6 +243,9 @@ def get_model_spec(ref: str | Path) -> ModelSpec | None:
     models_relative = MODELS_DIR / ref_path
     if models_relative.exists():
         return PATH_INDEX.get(str(models_relative.resolve()))
+
+    if ref_path.name in FILENAME_INDEX:
+        return FILENAME_INDEX[ref_path.name]
 
     return None
 
@@ -255,7 +267,7 @@ def resolve_model_ref(ref: str | Path) -> tuple[str, ModelSpec | None]:
     if models_relative.exists():
         return str(models_relative), None
 
-    if str(ref_path).startswith(("models/", "./", "../")):
+    if str(ref_path).startswith(("models/", "archive/", "actual_5m/", "./", "../")):
         return str(direct), None
 
     return str(models_relative), None
@@ -264,7 +276,7 @@ def resolve_model_ref(ref: str | Path) -> tuple[str, ModelSpec | None]:
 def model_ref_help() -> str:
     return (
         "Model reference can be a registry alias "
-        "(e.g. eval-aware/v2/best, eval-aware/clean-baseline, puzzle-weighted/reference), "
+        "(e.g. plain/games-500k, plain/puzzles-5m, weighted/puzzles-5m), "
         "a filename, or a filesystem path."
     )
 
@@ -299,18 +311,27 @@ def _print_table(specs: list[ModelSpec], *, details: bool = False) -> None:
     table = Table(title="Registered Checkpoints")
     table.add_column("Alias", style="cyan", no_wrap=True)
     table.add_column("Family", style="magenta", no_wrap=True)
-    table.add_column("Kind", style="yellow", no_wrap=True)
-    table.add_column("Size", style="green", no_wrap=True)
+    table.add_column("Data", style="yellow", no_wrap=True)
+    table.add_column("Scale", style="green", no_wrap=True)
+    table.add_column("Arch", style="green", no_wrap=True)
+    table.add_column("Status", style="yellow", no_wrap=True)
     if details:
         table.add_column("Dataset", style="yellow")
-        table.add_column("Base Model", style="cyan")
-        table.add_column("Role")
+        table.add_column("Init", style="cyan")
         table.add_column("File", style="dim")
+        table.add_column("Notes")
 
     for spec in specs:
-        row = [spec.primary_alias, spec.family, spec.training_kind, spec.size]
+        row = [
+            spec.primary_alias,
+            spec.family,
+            spec.data_source,
+            spec.scale,
+            spec.arch,
+            spec.status,
+        ]
         if details:
-            row.extend([spec.dataset, spec.base_model or "-", spec.role, spec.filename])
+            row.extend([spec.dataset, spec.init, spec.filename, spec.notes])
         table.add_row(*row)
 
     console = Console()
@@ -321,13 +342,17 @@ def _print_table(specs: list[ModelSpec], *, details: bool = False) -> None:
 def _print_plain_table(specs: list[ModelSpec]) -> None:
     alias_width = max(len(spec.primary_alias) for spec in specs)
     family_width = max(len(spec.family) for spec in specs)
-    kind_width = max(len(spec.training_kind) for spec in specs)
-    size_width = max(len(spec.size) for spec in specs)
+    data_width = max(len(spec.data_source) for spec in specs)
+    scale_width = max(len(spec.scale) for spec in specs)
+    arch_width = max(len(spec.arch) for spec in specs)
+    status_width = max(len(spec.status) for spec in specs)
     header = (
         f"{'Alias':<{alias_width}}  "
         f"{'Family':<{family_width}}  "
-        f"{'Kind':<{kind_width}}  "
-        f"{'Size':<{size_width}}  "
+        f"{'Data':<{data_width}}  "
+        f"{'Scale':<{scale_width}}  "
+        f"{'Arch':<{arch_width}}  "
+        f"{'Status':<{status_width}}  "
         f"File"
     )
     print(header)
@@ -336,25 +361,37 @@ def _print_plain_table(specs: list[ModelSpec]) -> None:
         print(
             f"{spec.primary_alias:<{alias_width}}  "
             f"{spec.family:<{family_width}}  "
-            f"{spec.training_kind:<{kind_width}}  "
-            f"{spec.size:<{size_width}}  "
+            f"{spec.data_source:<{data_width}}  "
+            f"{spec.scale:<{scale_width}}  "
+            f"{spec.arch:<{arch_width}}  "
+            f"{spec.status:<{status_width}}  "
             f"{spec.filename}"
         )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="List and resolve local nanoDanya model aliases.")
+    parser = argparse.ArgumentParser(description="List and resolve nanoDanya model aliases.")
     parser.add_argument("ref", nargs="?", help="Optional alias, filename, or path to resolve.")
     parser.add_argument("--family", help="Filter listed models by family.")
     parser.add_argument("--tag", help="Filter listed models by tag.")
+    parser.add_argument("--status", help="Filter listed models by status.")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of a table.")
-    parser.add_argument("--details", action="store_true", help="Include dataset, role, and file columns in the rich table.")
+    parser.add_argument("--details", action="store_true", help="Include dataset, init, file, and notes columns.")
     args = parser.parse_args()
 
     if args.ref:
         resolved_path, spec = resolve_model_ref(args.ref)
         if args.json:
-            print(json.dumps({"ref": args.ref, "resolved_path": resolved_path, "spec": _spec_to_dict(spec) if spec else None}, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "ref": args.ref,
+                        "resolved_path": resolved_path,
+                        "spec": _spec_to_dict(spec) if spec else None,
+                    },
+                    indent=2,
+                )
+            )
         else:
             print(f"ref: {args.ref}")
             print(f"resolved_path: {resolved_path}")
@@ -363,13 +400,17 @@ def main() -> None:
             else:
                 print(f"primary_alias: {spec.primary_alias}")
                 print(f"family: {spec.family}")
-                print(f"training_kind: {spec.training_kind}")
+                print(f"data_source: {spec.data_source}")
+                print(f"scale: {spec.scale}")
+                print(f"arch: {spec.arch}")
+                print(f"status: {spec.status}")
+                print(f"init: {spec.init}")
                 print(f"base_model: {spec.base_model or '<none>'}")
                 print(f"tags: {', '.join(spec.tags)}")
                 print(f"notes: {spec.notes}")
         return
 
-    specs = list_models(family=args.family, tag=args.tag)
+    specs = list_models(family=args.family, tag=args.tag, status=args.status)
     if args.json:
         print(json.dumps([_spec_to_dict(spec) for spec in specs], indent=2))
     else:

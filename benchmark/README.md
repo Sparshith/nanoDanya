@@ -17,10 +17,10 @@ Fast legality benchmark:
 
 ```bash
 uv run python benchmark/run.py legality \
-  --model puzzle-plain/reference \
+  --model plain/puzzles-5m \
   --max-positions 4096 \
   --batch-size 128 \
-  --output benchmark/legality_puzzle_plain.jsonl
+  --output benchmark/legality_plain_puzzles_5m.jsonl
 ```
 
 This reports:
@@ -33,10 +33,10 @@ Fast termination benchmark:
 
 ```bash
 uv run python benchmark/run.py termination \
-  --model puzzle-plain/reference \
+  --model plain/puzzles-5m \
   --max-positions 4096 \
   --batch-size 128 \
-  --output benchmark/termination_puzzle_plain.jsonl
+  --output benchmark/termination_plain_puzzles_5m.jsonl
 ```
 
 This reports whether `<eos>` is too attractive on non-terminal positions:
@@ -49,10 +49,10 @@ Fixed-position move-quality benchmark:
 
 ```bash
 uv run python benchmark/run.py move-quality \
-  --model puzzle-plain/reference \
+  --model plain/puzzles-5m \
   --max-positions 512 \
   --stockfish-depth 4 \
-  --output benchmark/move_quality_puzzle_plain.jsonl
+  --output benchmark/move_quality_plain_puzzles_5m.jsonl
 ```
 
 This asks the model for the best legal move on validation positions and scores
@@ -62,7 +62,7 @@ Held-out loss by ply:
 
 ```bash
 uv run python benchmark/run.py loss-by-ply \
-  --models baseline/l12/reference puzzle-plain/reference \
+  --models plain/games-500k plain/puzzles-5m \
   --max-games 4000 \
   --output benchmark/loss_by_ply_models.jsonl
 ```
@@ -75,12 +75,12 @@ Full scaffolded games:
 ```bash
 uv run python benchmark/run.py games \
   --game-mode stockfish \
-  --model puzzle-plain/reference \
+  --model plain/puzzles-5m \
   --stockfish-elo 500 \
   --stockfish-depth 1 \
   --games 50 \
   --batch-size 16 \
-  --output benchmark/games_puzzle_plain_sf500.jsonl
+  --output benchmark/games_plain_puzzles_5m_sf500.jsonl
 ```
 
 Head-to-head:
@@ -88,11 +88,11 @@ Head-to-head:
 ```bash
 uv run python benchmark/run.py games \
   --game-mode h2h \
-  --model puzzle-plain/reference \
-  --opponent-model baseline/l12/reference \
+  --model plain/puzzles-5m \
+  --opponent-model plain/games-500k \
   --games 50 \
   --batch-size 16 \
-  --output benchmark/games_puzzle_plain_vs_baseline.jsonl
+  --output benchmark/games_plain_puzzles_5m_vs_games_500k.jsonl
 ```
 
 Summarize artifacts:
@@ -105,8 +105,8 @@ Modal H2H benchmark:
 
 ```bash
 modal run modal_benchmark.py \
-  --model-a /data/actual_3m/chess_actual_3m_uniform_L12_H6_E768.pt \
-  --model-b /data/models/puzzle_plain_volume.pt \
+  --model-a plain/games-3m \
+  --model-b plain/puzzles-5m \
   --games 50 \
   --batch-size 64 \
   --shards 1
@@ -115,6 +115,24 @@ modal run modal_benchmark.py \
 `modal_benchmark.py` is only a remote wrapper around `benchmark/run.py games
 --game-mode h2h`. It exists because the checkpoints and A100 runtime live on the
 Modal volume.
+
+The Modal wrapper writes the aggregate summary and every game record to a local
+JSONL file under `benchmark/modal_h2h_*.jsonl` by default. Each `game` record
+contains the full SAN move list, color assignment, result, outcome, termination,
+and ply count.
+
+For the `games-5m` training arc, use [scripts/actual_5m_runbook.md](/Users/sparshith/workspace/nanoDanya/scripts/actual_5m_runbook.md). The main benchmark is:
+
+```bash
+modal run modal_benchmark.py \
+  --model-a plain/games-5m \
+  --model-b plain/puzzles-5m \
+  --games 200 \
+  --batch-size 64 \
+  --shards 4 \
+  --seed 5000 \
+  --output benchmark/h2h_plain_games_5m_vs_puzzles_5m_200.jsonl
+```
 
 ## Interpretation
 

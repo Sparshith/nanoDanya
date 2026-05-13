@@ -88,9 +88,9 @@ def cache_hiddens(args) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cache model hidden states for probe positions.")
-    parser.add_argument("--model", default="baseline/l12/reference")
+    parser.add_argument("--model", default="plain/games-500k")
     parser.add_argument("--positions", default="data/probes/positions_val_small.pt")
-    parser.add_argument("--out", default="data/probes/hiddens_baseline_l12_val_small.pt")
+    parser.add_argument("--out", default="data/probes/hiddens_plain_games_500k_val_small.pt")
     parser.add_argument("--layers", default="0,3,6,9,11")
     parser.add_argument("--batch-size", type=int, default=64)
     args = parser.parse_args()

@@ -208,7 +208,7 @@ def eval_bucket(cp_norm: torch.Tensor) -> torch.Tensor:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train linear probes from cached hidden states.")
     parser.add_argument("--positions", default="data/probes/positions_val_small.pt")
-    parser.add_argument("--hiddens", default="data/probes/hiddens_baseline_l12_val_small.pt")
+    parser.add_argument("--hiddens", default="data/probes/hiddens_plain_games_500k_val_small.pt")
     parser.add_argument("--out", default="data/probes/probe_metrics.csv")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=256)

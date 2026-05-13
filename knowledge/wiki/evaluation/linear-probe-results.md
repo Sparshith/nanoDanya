@@ -35,16 +35,16 @@ Rough interpretation:
 
 | Model | pieces_occ | legal_f1 | eval_bucket |
 |---|---:|---:|---:|
-| `baseline/l4/gpu` | 0.666 L3 | 0.628 L3 | 0.427 L1 |
-| `baseline/l8/reference` | 0.717 L6 | 0.713 L6 | 0.401 L2 |
-| `baseline/l12/reference` | 0.713 L9 | 0.710 L9 | 0.406 L9 |
-| `middlegame-ft/l12/reference` | 0.715 L9 | 0.713 L9 | 0.392 L9 |
-| `puzzle-plain/l12/500k` | 0.718 L9 | 0.707 L11 | 0.395 L6 |
-| `puzzle-plain/l12/reference` | 0.777 L9 | 0.782 L9 | 0.406 L3 |
-| `puzzle-weighted/l12/reference` | 0.786 L9 | 0.784 L11 | 0.406 L6 |
-| `weighted-eval-ft/l12/reference` | 0.789 L9 | 0.783 L11 | 0.469 L11 |
-| `eval-aware/v1/best` | 0.448 L9 | 0.222 L11 | 0.379 L3 |
-| `eval-aware/v2/best` | 0.422 L0 | 0.169 L11 | 0.324 L9 |
+| `plain/games-500k/l4-gpu-legacy` | 0.666 L3 | 0.628 L3 | 0.427 L1 |
+| `plain/games-500k/l8` | 0.717 L6 | 0.713 L6 | 0.401 L2 |
+| `plain/games-500k` | 0.713 L9 | 0.710 L9 | 0.406 L9 |
+| `weighted/middlegame-ft` | 0.715 L9 | 0.713 L9 | 0.392 L9 |
+| `plain/puzzles-500k` | 0.718 L9 | 0.707 L11 | 0.395 L6 |
+| `plain/puzzles-5m` | 0.777 L9 | 0.782 L9 | 0.406 L3 |
+| `weighted/puzzles-5m` | 0.786 L9 | 0.784 L11 | 0.406 L6 |
+| `eval-aware/weighted-ft` | 0.789 L9 | 0.783 L11 | 0.469 L11 |
+| `eval-aware/v1` | 0.448 L9 | 0.222 L11 | 0.379 L3 |
+| `eval-aware/v2` | 0.422 L0 | 0.169 L11 | 0.324 L9 |
 
 ## Main Read
 
@@ -55,24 +55,24 @@ The clearest comparison:
 
 | Model | pieces_occ | legal_f1 |
 |---|---:|---:|
-| `baseline/l12/reference` | 0.713 | 0.710 |
-| `puzzle-plain/l12/reference` | 0.777 | 0.782 |
-| `puzzle-weighted/l12/reference` | 0.786 | 0.784 |
+| `plain/games-500k` | 0.713 | 0.710 |
+| `plain/puzzles-5m` | 0.777 | 0.782 |
+| `weighted/puzzles-5m` | 0.786 | 0.784 |
 
-`weighted-eval-ft/l12/reference` keeps the strong board/legal representation and
+`eval-aware/weighted-ft` keeps the strong board/legal representation and
 is the only model that clearly beats the eval-bucket baseline:
 
 | Model | eval_bucket | baseline |
 |---|---:|---:|
-| `weighted-eval-ft/l12/reference` | 0.469 | 0.427 |
+| `eval-aware/weighted-ft` | 0.469 | 0.427 |
 
 The eval-aware checkpoints look representationally weak under this probe. Their
 legal-move F1 is near or below the frequency baseline:
 
 | Model | legal_f1 | baseline |
 |---|---:|---:|
-| `eval-aware/v1/best` | 0.222 | 0.227 |
-| `eval-aware/v2/best` | 0.169 | 0.227 |
+| `eval-aware/v1` | 0.222 | 0.227 |
+| `eval-aware/v2` | 0.169 | 0.227 |
 
 ## Interpretation
 
