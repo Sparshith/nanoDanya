@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
 
 import torch
 
-from game_runner import load_model
+from model_loading import load_model
 
 
 def parse_layers(value: str, n_layer: int) -> list[int]:

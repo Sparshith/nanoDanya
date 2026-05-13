@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-import chess
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import chess
 
 
 def strip_san(move: str) -> str:

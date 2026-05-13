@@ -1,42 +1,26 @@
 import modal
 
-from model_registry import resolve_model_ref
+from chess_inference import choose_move_from_logits
+from chess_token_utils import resolve_token_id
 
 app = modal.App("nanodanya-chess")
 
-SERVE_MODEL_REF = "baseline/l12/reference"
-SERVE_MODEL_PATH, _ = resolve_model_ref(SERVE_MODEL_REF)
+SERVE_MODEL_REF = "plain/puzzles-5m"
+SERVE_MODEL_PATH = "/data/models/chess_puzzle_plain_L12_H6_E768.pt"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install("torch", "chess", "fastapi[standard]")
-    .add_local_file(SERVE_MODEL_PATH, "/model/chess.pt")
+    .add_local_python_source("chess_inference", "chess_token_utils")
 )
 
-
-def strip_san(move: str) -> str:
-    return move.rstrip("+#")
-
-
-def resolve_token_id(stoi: dict[str, int], san: str) -> int | None:
-    for candidate in (san, strip_san(san)):
-        token_id = stoi.get(candidate)
-        if token_id is not None:
-            return token_id
-
-    normalized = strip_san(san)
-    for token, idx in stoi.items():
-        if token.startswith("<"):
-            continue
-        if strip_san(token) == normalized:
-            return idx
-
-    return None
+volume = modal.Volume.from_name("nanodanya-data")
 
 
 @app.cls(
     image=image,
     gpu="T4",
+    volumes={"/data": volume},
 )
 class ChessModel:
     @modal.enter()
@@ -148,7 +132,7 @@ class ChessModel:
                 logits = self.lm_head(x)
                 return 15 * torch.tanh(logits / 15)
 
-        ckpt = torch.load("/model/chess.pt", map_location="cpu", weights_only=False)
+        ckpt = torch.load(SERVE_MODEL_PATH, map_location="cpu", weights_only=False)
         config = GPTConfig(**ckpt["meta"]["model_config"])
         self.model = GPT(config).eval().cuda()
         self.model.load_state_dict(ckpt["model"])
@@ -179,19 +163,18 @@ class ChessModel:
         x = torch.tensor(token_ids, device="cuda")[None, :]
         logits = self.model(x[:, -self.config.sequence_len:])
 
-        legal_san = {strip_san(board.san(mv)) for mv in board.legal_moves}
-        mask = torch.full((len(self.itos),), float("-inf"), device="cuda")
-        for token, idx in self.stoi.items():
-            if token != "<bos>" and strip_san(token) in legal_san:
-                mask[idx] = logits[0, -1, idx]
-
-        if temperature > 0:
-            probs = torch.softmax(mask / temperature, dim=-1)
-            next_id = torch.multinomial(probs, num_samples=1)
-        else:
-            next_id = torch.argmax(mask)
-
-        return self.itos[next_id.item()]
+        _, next_token = choose_move_from_logits(
+            logits[0, -1, :],
+            board,
+            self.stoi,
+            self.itos,
+            temperature=temperature,
+            allow_eos=False,
+            legal_mask=True,
+        )
+        if next_token is None:
+            raise ValueError("no legal move available")
+        return next_token
 
 
 @app.function(image=image)
@@ -233,6 +216,10 @@ def serve():
 
     @web_app.get("/health")
     async def health():
-        return {"status": "ok"}
+        return {
+            "status": "ok",
+            "model_ref": SERVE_MODEL_REF,
+            "model_path": SERVE_MODEL_PATH,
+        }
 
     return web_app

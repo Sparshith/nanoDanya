@@ -29,10 +29,10 @@ from chess_token_utils import (
     resolve_token_id,
     strip_san,
     token_is_legal_prediction,
-    token_is_playable,
 )
+from chess_inference import choose_move_from_logits, legal_token_ids, token_for_id
 from inference.kv_cache import KVCache
-from game_runner import load_model
+from model_loading import load_model
 from model_registry import model_ref_help
 
 
@@ -129,14 +129,6 @@ def resolve_device(device_arg: str) -> str:
     if torch.backends.mps.is_available():
         return "mps"
     return "cpu"
-
-
-def token_for_id(itos: dict, idx: int) -> str:
-    if isinstance(itos, list):
-        return itos[idx]
-    if idx in itos:
-        return itos[idx]
-    return itos[str(idx)]
 
 
 def write_jsonl(path: str | Path, records: Iterable[dict], *, append: bool = False) -> None:
@@ -280,15 +272,6 @@ def last_logits_for_prefixes(
         logits = model(x)
         for row, idx in enumerate(last_idx):
             yield start + row, logits[row, idx, :].detach()
-
-
-def legal_token_ids(stoi: dict[str, int], board: chess.Board, *, allow_eos: bool) -> list[int]:
-    legal_san = normalized_legal_sans(board)
-    return [
-        idx
-        for token, idx in stoi.items()
-        if token_is_playable(token, legal_san, allow_eos=allow_eos)
-    ]
 
 
 def raw_metrics_from_logits(
@@ -439,33 +422,6 @@ def command_termination(args: argparse.Namespace) -> None:
     write_jsonl(args.output, records)
     print_summary_record(summary)
     print(f"wrote {args.output}")
-
-
-def choose_move_from_logits(
-    logits: torch.Tensor,
-    board: chess.Board,
-    stoi: dict[str, int],
-    itos: dict,
-    *,
-    temperature: float,
-    allow_eos: bool,
-    legal_mask: bool,
-) -> tuple[int | None, str | None]:
-    if legal_mask:
-        ids = legal_token_ids(stoi, board, allow_eos=allow_eos)
-    else:
-        ids = list(range(len(itos)))
-    if not ids:
-        return None, None
-
-    mask = torch.full_like(logits, float("-inf"))
-    mask[ids] = logits[ids]
-    if temperature <= 0:
-        next_id = int(torch.argmax(mask).item())
-    else:
-        probs = torch.softmax(mask / temperature, dim=-1)
-        next_id = int(torch.multinomial(probs, num_samples=1).item())
-    return next_id, token_for_id(itos, next_id)
 
 
 def cp_for_side(engine: chess.engine.SimpleEngine, board: chess.Board, side: chess.Color, limit) -> int:
