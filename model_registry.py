@@ -20,12 +20,10 @@ class ModelSpec:
     data_source: str
     scale: str
     arch: str
-    objective: str
     dataset: str
     status: str
     init: str = "scratch"
     base_model: str | None = None
-    tags: tuple[str, ...] = ()
     notes: str = ""
 
     @property
@@ -56,93 +54,79 @@ class ModelSpec:
 MODEL_REGISTRY = (
     ModelSpec(
         aliases=("plain/games-500k", "plain/games-500k/l12"),
-        path="models/chess_L12_H6_E768.pt",
+        path="checkpoints/plain/games-500k/l12.pt",
         family="plain",
         data_source="games",
         scale="500k",
         arch="L12_H6_E768",
-        objective="next-token SAN",
-        dataset="processed",
-        status="active",
-        tags=("games", "500k", "l12"),
+        dataset="datasets/games/500k",
+        status="ready",
         notes="Main normal-game baseline. The unsuffixed alias resolves to the L12 architecture.",
     ),
     ModelSpec(
         aliases=("plain/games-500k/l8",),
-        path="archive/checkpoints_2026_05_11/chess_min.pt",
+        path="checkpoints/plain/games-500k/l8.pt",
         family="plain",
         data_source="games",
         scale="500k",
         arch="L8_H8_E512",
-        objective="next-token SAN",
-        dataset="processed",
-        status="archived",
-        tags=("games", "500k", "l8", "archived"),
+        dataset="datasets/games/500k",
+        status="ready",
         notes="Older L8 normal-game checkpoint, historically named chess_min.pt.",
     ),
     ModelSpec(
         aliases=("plain/games-3m", "plain/games-3m/l12"),
-        path="models/chess_actual_3m_uniform_L12_H6_E768.pt",
+        path="checkpoints/plain/games-3m/l12.pt",
         family="plain",
         data_source="games",
         scale="3m",
         arch="L12_H6_E768",
-        objective="next-token SAN",
-        dataset="actual_3m",
-        status="active",
-        tags=("games", "3m", "l12"),
+        dataset="datasets/games/3m",
+        status="ready",
         notes="Normal-game 3M scale run.",
     ),
     ModelSpec(
         aliases=("plain/games-5m", "plain/games-5m/l12"),
-        path="actual_5m/chess_actual_5m_uniform_L12_H6_E768_best.pt",
+        path="checkpoints/plain/games-5m/l12_best.pt",
         family="plain",
         data_source="games",
         scale="5m",
         arch="L12_H6_E768",
-        objective="next-token SAN",
-        dataset="actual_5m",
-        status="active",
-        tags=("games", "5m", "l12", "best"),
+        dataset="datasets/games/5m",
+        status="ready",
         notes="Normal-game 5M best checkpoint.",
     ),
     ModelSpec(
         aliases=("plain/puzzles-5m", "plain/puzzles-5m/l12"),
-        path="models/chess_puzzle_plain_L12_H6_E768.pt",
+        path="checkpoints/plain/puzzles-5m/l12.pt",
         family="plain",
         data_source="puzzles",
         scale="5m",
         arch="L12_H6_E768",
-        objective="next-token SAN",
-        dataset="puzzle_weighted",
-        status="active",
-        tags=("puzzles", "5m", "l12"),
+        dataset="datasets/puzzles/5m",
+        status="ready",
         notes="Plain objective on the full puzzle-derived corpus.",
     ),
     ModelSpec(
         aliases=("plain/puzzles-500k", "plain/puzzles-500k/l12"),
-        path="models/chess_puzzle_plain_500k_L12_H6_E768_best.pt",
+        path="checkpoints/plain/puzzles-500k/l12_best.pt",
         family="plain",
         data_source="puzzles",
         scale="500k",
         arch="L12_H6_E768",
-        objective="next-token SAN",
-        dataset="puzzle_highrated_500k",
-        status="active",
-        tags=("puzzles", "500k", "high-rated", "l12", "best"),
-        notes="Rebuilt high-rated 500k puzzle slice. Replaces the old arbitrary 500k puzzle checkpoint.",
+        dataset="datasets/puzzles/500k",
+        status="ready",
+        notes="Rebuilt 500k puzzle slice. Replaces the old arbitrary 500k puzzle checkpoint.",
     ),
     ModelSpec(
         aliases=("weighted/puzzles-5m", "weighted/puzzles-5m/l12"),
-        path="archive/checkpoints_2026_05_11/puzzle_weighted/chess_puzzle_weighted_L12_H6_E768.pt",
+        path="checkpoints/weighted/puzzles-5m/l12.pt",
         family="weighted",
         data_source="puzzles",
         scale="5m",
         arch="L12_H6_E768",
-        objective="weighted next-token SAN",
-        dataset="puzzle_weighted",
-        status="archived",
-        tags=("puzzles", "5m", "weighted", "l12", "archived"),
+        dataset="datasets/puzzles/5m",
+        status="ready",
         notes="Weighted objective on the full puzzle-derived corpus.",
     ),
     ModelSpec(
@@ -152,56 +136,48 @@ MODEL_REGISTRY = (
         data_source="middlegame",
         scale="ft",
         arch="L12_H6_E768",
-        objective="weighted next-token SAN",
         dataset="processed + middlegame_weighted",
         status="local-only",
         init="fine-tune",
         base_model="plain/games-500k",
-        tags=("middlegame", "weighted", "fine-tune", "l12"),
         notes="Middlegame-weighted fine-tune from the normal-game baseline.",
     ),
     ModelSpec(
         aliases=("eval-aware/v1", "eval-aware/v1/l12"),
-        path="models/chess_eval_aware_v1_L12_H6_E768_best.pt",
+        path="checkpoints/eval-aware/v1/l12_best.pt",
         family="eval-aware",
         data_source="eval",
         scale="v1",
         arch="L12_H6_E768",
-        objective="move loss + eval objective",
-        dataset="eval",
-        status="local-only",
-        tags=("eval", "v1", "l12", "best"),
+        dataset="datasets/eval/base",
+        status="ready",
         notes="Older random-init eval-aware checkpoint.",
     ),
     ModelSpec(
         aliases=("eval-aware/weighted-ft", "eval-aware/weighted-ft/l12"),
-        path="archive/checkpoints_2026_05_11/eval/chess_weighted_eval_ft_L12_H6_E768.pt",
+        path="checkpoints/eval-aware/weighted-ft/l12.pt",
         family="eval-aware",
         data_source="eval",
         scale="weighted-ft",
         arch="L12_H6_E768",
-        objective="move loss + scalar eval fine-tune",
-        dataset="eval",
-        status="archived",
+        dataset="datasets/eval/base",
+        status="ready",
         init="fine-tune",
         base_model="weighted/puzzles-5m",
-        tags=("eval", "weighted", "fine-tune", "l12", "archived"),
         notes="Puzzle-weighted checkpoint fine-tuned with scalar eval supervision.",
     ),
     ModelSpec(
         aliases=("eval-aware/v2", "eval-aware/v2/l12"),
-        path="archive/checkpoints_2026_05_11/eval/chess_eval_aware_v2_L12_H6_E768_best.pt",
+        path="checkpoints/eval-aware/v2/l12_best.pt",
         family="eval-aware",
         data_source="eval",
         scale="v2",
         arch="L12_H6_E768",
-        objective="move loss + eval objective",
-        dataset="eval",
-        status="archived",
+        dataset="datasets/eval/base",
+        status="ready",
         init="continued",
         base_model="eval-aware/v1",
-        tags=("eval", "v2", "l12", "best", "archived"),
-        notes="Archived eval-aware v2 best checkpoint. No unstable latest alias.",
+        notes="Eval-aware v2 best checkpoint. No unstable latest alias.",
     ),
 )
 
@@ -214,14 +190,11 @@ PATH_INDEX = {str(spec.absolute_path.resolve()): spec for spec in MODEL_REGISTRY
 def list_models(
     *,
     family: str | None = None,
-    tag: str | None = None,
     status: str | None = None,
 ) -> list[ModelSpec]:
     specs = list(MODEL_REGISTRY)
     if family is not None:
         specs = [spec for spec in specs if spec.family == family]
-    if tag is not None:
-        specs = [spec for spec in specs if tag in spec.tags]
     if status is not None:
         specs = [spec for spec in specs if spec.status == status]
     return specs
@@ -267,7 +240,7 @@ def resolve_model_ref(ref: str | Path) -> tuple[str, ModelSpec | None]:
     if models_relative.exists():
         return str(models_relative), None
 
-    if str(ref_path).startswith(("models/", "archive/", "actual_5m/", "./", "../")):
+    if str(ref_path).startswith(("models/", "checkpoints/", "datasets/", "./", "../")):
         return str(direct), None
 
     return str(models_relative), None
@@ -373,7 +346,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="List and resolve nanoDanya model aliases.")
     parser.add_argument("ref", nargs="?", help="Optional alias, filename, or path to resolve.")
     parser.add_argument("--family", help="Filter listed models by family.")
-    parser.add_argument("--tag", help="Filter listed models by tag.")
     parser.add_argument("--status", help="Filter listed models by status.")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of a table.")
     parser.add_argument("--details", action="store_true", help="Include dataset, init, file, and notes columns.")
@@ -406,11 +378,10 @@ def main() -> None:
                 print(f"status: {spec.status}")
                 print(f"init: {spec.init}")
                 print(f"base_model: {spec.base_model or '<none>'}")
-                print(f"tags: {', '.join(spec.tags)}")
                 print(f"notes: {spec.notes}")
         return
 
-    specs = list_models(family=args.family, tag=args.tag, status=args.status)
+    specs = list_models(family=args.family, status=args.status)
     if args.json:
         print(json.dumps([_spec_to_dict(spec) for spec in specs], indent=2))
     else:
