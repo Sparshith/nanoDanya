@@ -69,6 +69,7 @@ def train(datasets: str, script: str, env_overrides: str = ""):
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONPATH"] = str(project_root / "nanochat")
+    env["NANODANYA_MODAL_TRAIN"] = "1"
     env.update(parse_env_overrides(env_overrides))
     if env_overrides:
         print(f"Using env overrides: {env_overrides}")
