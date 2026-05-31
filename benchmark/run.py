@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pickle
 import random
+import re
 import statistics
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -17,6 +20,7 @@ from typing import Iterable
 import chess
 import chess.engine
 import numpy as np
+import requests
 import torch
 import torch.nn.functional as F
 
@@ -29,6 +33,7 @@ from chess_token_utils import (
     resolve_token_id,
     strip_san,
     token_is_legal_prediction,
+    under_disambiguated_legal_matches,
 )
 from chess_inference import choose_move_from_logits, legal_token_ids, token_for_id
 from inference.kv_cache import KVCache
@@ -49,27 +54,75 @@ class Position:
 
 
 @dataclass
+class PromptPosition:
+    board: chess.Board
+    moves: list[str]
+    ply: int
+    game_index: int
+
+
+@dataclass
 class LegalityStats:
     positions: int = 0
     illegal_top1: int = 0
+    under_disambiguated_top1: int = 0
     legal_mass_sum: float = 0.0
 
-    def add(self, *, raw_top1_legal: bool, legal_mass: float) -> None:
+    def add(self, *, raw_top1_legal: bool, under_disambiguated: bool, legal_mass: float) -> None:
         self.positions += 1
         self.illegal_top1 += 0 if raw_top1_legal else 1
+        self.under_disambiguated_top1 += 1 if under_disambiguated else 0
         self.legal_mass_sum += legal_mass
 
     def as_metrics(self) -> dict:
         if self.positions == 0:
             return {
                 "positions": 0,
+                "raw_top1_illegal": 0,
+                "raw_top1_under_disambiguated": 0,
+                "raw_top1_real_illegal": 0,
                 "raw_top1_illegal_rate": None,
+                "raw_top1_real_illegal_rate": None,
                 "avg_legal_mass": None,
+            }
+        real_illegal = self.illegal_top1 - self.under_disambiguated_top1
+        return {
+            "positions": self.positions,
+            "raw_top1_illegal": self.illegal_top1,
+            "raw_top1_under_disambiguated": self.under_disambiguated_top1,
+            "raw_top1_real_illegal": real_illegal,
+            "raw_top1_illegal_rate": self.illegal_top1 / self.positions,
+            "raw_top1_real_illegal_rate": real_illegal / self.positions,
+            "avg_legal_mass": self.legal_mass_sum / self.positions,
+        }
+
+
+@dataclass
+class ApiLegalityStats:
+    positions: int = 0
+    api_errors: int = 0
+    parseable: int = 0
+    legal: int = 0
+
+    def add(self, *, api_error: bool, parseable: bool, legal: bool) -> None:
+        self.positions += 1
+        self.api_errors += 1 if api_error else 0
+        self.parseable += 1 if parseable else 0
+        self.legal += 1 if legal else 0
+
+    def as_metrics(self) -> dict:
+        if self.positions == 0:
+            return {
+                "positions": 0,
+                "api_error_rate": None,
+                "parseable_rate": None,
+                "legal_rate": None,
             }
         return {
             "positions": self.positions,
-            "raw_top1_illegal_rate": self.illegal_top1 / self.positions,
-            "avg_legal_mass": self.legal_mass_sum / self.positions,
+            "api_error_rate": self.api_errors / self.positions,
+            "parseable_rate": self.parseable / self.positions,
+            "legal_rate": self.legal / self.positions,
         }
 
 
@@ -153,6 +206,17 @@ def run_record(command: str, args: argparse.Namespace, extra: dict | None = None
         "command": command,
         "config": config | (extra or {}),
     }
+
+
+def load_dotenv(path: Path = Path(".env")) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip("'\""))
 
 
 def load_token_games(data_dir: Path, split: str, max_games: int) -> tuple[list[list[str]], dict]:
@@ -253,6 +317,48 @@ def collect_positions(
     return positions
 
 
+def collect_prompt_positions(
+    *,
+    data_dir: Path,
+    split: str,
+    max_games: int,
+    max_positions: int,
+    max_ply: int,
+) -> list[PromptPosition]:
+    games, _ = load_token_games(data_dir, split, max_games)
+    positions: list[PromptPosition] = []
+
+    for game_index, game in enumerate(games):
+        board = chess.Board()
+        moves: list[str] = []
+        ply = 0
+
+        for token in game[1:]:
+            if token == "<eos>":
+                break
+
+            ply += 1
+            if max_ply <= 0 or ply <= max_ply:
+                positions.append(
+                    PromptPosition(
+                        board=board.copy(stack=False),
+                        moves=moves.copy(),
+                        ply=ply,
+                        game_index=game_index,
+                    )
+                )
+                if max_positions > 0 and len(positions) >= max_positions:
+                    return positions
+
+            try:
+                board.push_san(token)
+            except ValueError:
+                break
+            moves.append(token)
+
+    return positions
+
+
 def last_logits_for_prefixes(
     model,
     prefixes: list[list[int]],
@@ -286,6 +392,7 @@ def raw_metrics_from_logits(
     raw_top1 = token_for_id(itos, raw_top1_idx)
     legal_san = normalized_legal_sans(board)
     raw_top1_legal = token_is_legal_prediction(raw_top1, legal_san)
+    under_disambiguated_matches = under_disambiguated_legal_matches(raw_top1, legal_san)
 
     probs = torch.softmax(logits, dim=-1)
     legal_ids = legal_token_ids(stoi, board, allow_eos=allow_eos)
@@ -294,6 +401,8 @@ def raw_metrics_from_logits(
     return {
         "raw_top1": raw_top1,
         "raw_top1_legal": raw_top1_legal,
+        "raw_top1_under_disambiguated": bool(under_disambiguated_matches),
+        "raw_top1_under_disambiguated_matches": under_disambiguated_matches,
         "raw_top1_prob": round(float(probs[raw_top1_idx].item()), 6),
         "legal_mass": legal_mass,
     }
@@ -305,6 +414,138 @@ def phase_for_ply(ply: int) -> str:
     if ply <= 80:
         return "middlegame"
     return "endgame"
+
+
+def format_move_history(moves: list[str]) -> str:
+    if not moves:
+        return "(start position)"
+    chunks = []
+    for idx in range(0, len(moves), 2):
+        move_no = idx // 2 + 1
+        white = moves[idx]
+        if idx + 1 < len(moves):
+            chunks.append(f"{move_no}. {white} {moves[idx + 1]}")
+        else:
+            chunks.append(f"{move_no}. {white}")
+    return " ".join(chunks)
+
+
+def api_legality_prompt(position: PromptPosition) -> list[dict[str, str]]:
+    side = "White" if position.board.turn == chess.WHITE else "Black"
+    return [
+        {
+            "role": "system",
+            "content": "You are a chess player. Return exactly one legal SAN chess move and nothing else.",
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Game so far:\n{format_move_history(position.moves)}\n\n"
+                f"Side to move: {side}.\n"
+                "Return exactly one legal SAN move."
+            ),
+        },
+    ]
+
+
+SAN_CANDIDATE_RE = re.compile(
+    r"(?:O-O-O|O-O|0-0-0|0-0|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?)[+#]?[!?]*"
+)
+
+
+def clean_san_candidate(candidate: str) -> str:
+    candidate = candidate.strip().strip("`'\"")
+    candidate = re.sub(r"^(?:move|answer)\s*:\s*", "", candidate, flags=re.IGNORECASE).strip()
+    candidate = candidate.rstrip(".,;")
+    if candidate in {"0-0", "0-0+", "0-0#", "0-0-0", "0-0-0+", "0-0-0#"}:
+        candidate = candidate.replace("0", "O")
+    candidate = re.sub(r"[!?]+$", "", candidate)
+    return candidate
+
+
+def san_candidates(raw_response: str) -> list[str]:
+    cleaned = raw_response.strip()
+    cleaned = cleaned.replace("```", "").strip()
+    candidates = [match.group(0) for match in SAN_CANDIDATE_RE.finditer(cleaned)]
+
+    seen = set()
+    unique = []
+    for candidate in candidates:
+        candidate = clean_san_candidate(candidate)
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            unique.append(candidate)
+    return unique
+
+
+def parse_api_move(board: chess.Board, raw_response: str) -> tuple[str | None, bool]:
+    candidates = san_candidates(raw_response)
+    if not candidates:
+        return None, False
+
+    for candidate in candidates:
+        try:
+            move = board.parse_san(candidate)
+        except ValueError:
+            continue
+        return board.san(move), True
+
+    return candidates[0], False
+
+
+def call_openrouter(
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    api_key: str,
+    base_url: str,
+    app_name: str,
+    site_url: str,
+    timeout: float,
+    retries: int,
+    retry_sleep: float,
+) -> str:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "X-Title": app_name,
+    }
+    if site_url:
+        headers["HTTP-Referer"] = site_url
+
+    uses_gemini_thinking = model.startswith("google/gemini-3.")
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0,
+        "max_tokens": 96 if uses_gemini_thinking else 32,
+        "include_reasoning": False,
+    }
+    if uses_gemini_thinking:
+        payload["reasoning"] = {"effort": "minimal", "exclude": True}
+    url = f"{base_url.rstrip('/')}/chat/completions"
+
+    last_error = None
+    for attempt in range(retries + 1):
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+            if response.status_code in {429, 500, 502, 503, 504} and attempt < retries:
+                time.sleep(retry_sleep * (attempt + 1))
+                continue
+            response.raise_for_status()
+            data = response.json()
+            content = data["choices"][0]["message"].get("content")
+            if content is None:
+                return ""
+            if isinstance(content, str):
+                return content
+            return json.dumps(content)
+        except (requests.RequestException, KeyError, IndexError, TypeError, ValueError) as exc:
+            last_error = exc
+            if attempt < retries:
+                time.sleep(retry_sleep * (attempt + 1))
+                continue
+    raise RuntimeError(str(last_error))
 
 
 @torch.inference_mode()
@@ -342,10 +583,12 @@ def command_legality(args: argparse.Namespace) -> None:
         )
         overall.add(
             raw_top1_legal=metrics["raw_top1_legal"],
+            under_disambiguated=metrics["raw_top1_under_disambiguated"],
             legal_mass=metrics["legal_mass"],
         )
         by_phase[phase_for_ply(pos.ply)].add(
             raw_top1_legal=metrics["raw_top1_legal"],
+            under_disambiguated=metrics["raw_top1_under_disambiguated"],
             legal_mass=metrics["legal_mass"],
         )
         if not metrics["raw_top1_legal"]:
@@ -364,6 +607,193 @@ def command_legality(args: argparse.Namespace) -> None:
     records = [run_record("legality", args, {"device": device}), summary]
     write_jsonl(args.output, records)
     print_summary_record(summary)
+    print(f"wrote {args.output}")
+
+
+def evaluate_api_legality_position(
+    *,
+    model: str,
+    pos: PromptPosition,
+    api_key: str,
+    args: argparse.Namespace,
+) -> dict:
+    phase = phase_for_ply(pos.ply)
+    messages = api_legality_prompt(pos)
+    raw_response = ""
+    parsed_move = None
+    legal = False
+    api_error = False
+    error = ""
+
+    try:
+        raw_response = call_openrouter(
+            model=model,
+            messages=messages,
+            api_key=api_key,
+            base_url=args.base_url,
+            app_name=args.app_name,
+            site_url=args.site_url,
+            timeout=args.timeout,
+            retries=args.retries,
+            retry_sleep=args.retry_sleep,
+        )
+        parsed_move, legal = parse_api_move(pos.board, raw_response)
+    except RuntimeError as exc:
+        api_error = True
+        error = str(exc)[:300]
+
+    parseable = parsed_move is not None
+    record = {
+        "type": "api_legality_position",
+        "schema_version": SCHEMA_VERSION,
+        "provider": "openrouter",
+        "model": model,
+        "game_index": pos.game_index,
+        "ply": pos.ply,
+        "phase": phase,
+        "fen": pos.board.fen(),
+        "side": "white" if pos.board.turn == chess.WHITE else "black",
+        "moves": pos.moves,
+        "raw_response": raw_response,
+        "parsed_move": parsed_move,
+        "parseable": parseable,
+        "legal": legal,
+        "api_error": api_error,
+    }
+    if error:
+        record["error"] = error
+    if args.write_prompts:
+        record["messages"] = messages
+    return record
+
+
+def api_position_key(record: dict) -> tuple[int, int, str]:
+    return (int(record["game_index"]), int(record["ply"]), str(record["fen"]))
+
+
+def command_api_legality(args: argparse.Namespace) -> None:
+    load_dotenv()
+    api_key = args.api_key or os.environ.get("OPENROUTER_API_KEY", "")
+    if not api_key:
+        raise SystemExit("Set OPENROUTER_API_KEY or pass --api-key")
+
+    positions = collect_prompt_positions(
+        data_dir=Path(args.data_dir),
+        split=args.split,
+        max_games=args.max_games,
+        max_positions=args.max_positions,
+        max_ply=args.max_ply,
+    )
+
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    safe_args = argparse.Namespace(**(vars(args) | {"api_key": "<redacted>" if args.api_key else ""}))
+
+    existing_by_model: dict[str, dict[tuple[int, int, str], dict]] = defaultdict(dict)
+    if args.resume and out.exists():
+        with out.open() as existing_file:
+            for line in existing_file:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if record.get("type") == "api_legality_position":
+                    if record.get("api_error"):
+                        continue
+                    existing_by_model[record["model"]][api_position_key(record)] = record
+
+    mode = "a" if args.resume and out.exists() else "w"
+    with out.open(mode) as f:
+        if mode == "w":
+            f.write(json.dumps(run_record("api-legality", safe_args, {"provider": "openrouter"}), sort_keys=True) + "\n")
+
+        for model in args.models:
+            overall = ApiLegalityStats()
+            by_phase: dict[str, ApiLegalityStats] = defaultdict(ApiLegalityStats)
+            top_illegal = Counter()
+            top_unparseable = Counter()
+            existing = existing_by_model.get(model, {})
+            remaining_positions = [
+                pos for pos in positions
+                if (pos.game_index, pos.ply, pos.board.fen()) not in existing
+            ]
+            completed = 0
+
+            for record in existing.values():
+                phase = record["phase"]
+                api_error = bool(record.get("api_error"))
+                parseable = bool(record["parseable"])
+                legal = bool(record["legal"])
+                parsed_move = record["parsed_move"]
+                raw_response = record["raw_response"]
+
+                overall.add(api_error=api_error, parseable=parseable, legal=legal)
+                by_phase[phase].add(api_error=api_error, parseable=parseable, legal=legal)
+                if api_error:
+                    top_unparseable["<api_error>"] += 1
+                elif not parseable:
+                    top_unparseable[raw_response[:120]] += 1
+                elif not legal:
+                    top_illegal[parsed_move] += 1
+
+            if existing:
+                print(f"{model}: resuming from {len(existing)}/{len(positions)} existing positions")
+
+            with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
+                futures = [
+                    executor.submit(
+                        evaluate_api_legality_position,
+                        model=model,
+                        pos=pos,
+                        api_key=api_key,
+                        args=args,
+                    )
+                    for pos in remaining_positions
+                ]
+
+                for future in as_completed(futures):
+                    record = future.result()
+                    phase = record["phase"]
+                    api_error = bool(record["api_error"])
+                    parseable = bool(record["parseable"])
+                    legal = bool(record["legal"])
+                    parsed_move = record["parsed_move"]
+                    raw_response = record["raw_response"]
+
+                    overall.add(api_error=api_error, parseable=parseable, legal=legal)
+                    by_phase[phase].add(api_error=api_error, parseable=parseable, legal=legal)
+
+                    if api_error:
+                        top_unparseable["<api_error>"] += 1
+                    elif not parseable:
+                        top_unparseable[raw_response[:120]] += 1
+                    elif not legal:
+                        top_illegal[parsed_move] += 1
+
+                    if args.write_positions:
+                        f.write(json.dumps(record, sort_keys=True) + "\n")
+
+                    completed += 1
+                    total_done = len(existing) + completed
+                    if args.progress_every > 0 and total_done % args.progress_every == 0:
+                        print(f"{model}: {total_done}/{len(positions)} positions")
+                    if args.sleep > 0:
+                        time.sleep(args.sleep)
+
+            summary = {
+                "type": "api_legality_summary",
+                "schema_version": SCHEMA_VERSION,
+                "provider": "openrouter",
+                "model": model,
+                "metrics": overall.as_metrics(),
+                "by_phase": {phase: stats.as_metrics() for phase, stats in sorted(by_phase.items())},
+                "top_illegal_parsed_moves": top_illegal.most_common(args.top_errors),
+                "top_unparseable_responses": top_unparseable.most_common(args.top_errors),
+            }
+            f.write(json.dumps(summary, sort_keys=True) + "\n")
+            f.flush()
+            print_summary_record(summary)
+
     print(f"wrote {args.output}")
 
 
@@ -526,6 +956,24 @@ def stockfish_limit(args: argparse.Namespace):
     return chess.engine.Limit(time=args.stockfish_time)
 
 
+def configure_stockfish_strength(engine: chess.engine.SimpleEngine, requested_elo: int) -> None:
+    if requested_elo <= 0:
+        return
+    elo_option = engine.options.get("UCI_Elo")
+    if elo_option is None:
+        raise ValueError("Stockfish engine does not expose UCI_Elo")
+    if elo_option.min is not None and requested_elo < elo_option.min:
+        raise ValueError(
+            f"--stockfish-elo {requested_elo} is below this engine's UCI_Elo minimum "
+            f"of {elo_option.min}; use a Fairy-Stockfish binary with the extended Elo range"
+        )
+    if elo_option.max is not None and requested_elo > elo_option.max:
+        raise ValueError(
+            f"--stockfish-elo {requested_elo} is above this engine's UCI_Elo maximum of {elo_option.max}"
+        )
+    engine.configure({"UCI_LimitStrength": True, "UCI_Elo": requested_elo})
+
+
 def apply_prompt(board: chess.Board, prompt_moves: list[str], prefixes: dict[str, list[int]], tokenizers: dict[str, dict]) -> None:
     for san in prompt_moves:
         board.push_san(san)
@@ -598,6 +1046,9 @@ def game_outcome_for_model(result: str, model_color: chess.Color | None, termina
 
 
 def game_record(state: GameState, args: argparse.Namespace) -> dict:
+    opponent = args.opponent_model
+    if args.game_mode == "stockfish":
+        opponent = f"sf{args.stockfish_elo}"
     return {
         "type": "game",
         "schema_version": SCHEMA_VERSION,
@@ -606,6 +1057,8 @@ def game_record(state: GameState, args: argparse.Namespace) -> dict:
         "mode": args.game_mode,
         "model": args.model,
         "opponent_model": args.opponent_model,
+        "opponent": opponent,
+        "stockfish_elo": args.stockfish_elo if args.game_mode == "stockfish" else None,
         "model_color": "white" if state.model_color == chess.WHITE else ("black" if state.model_color == chess.BLACK else None),
         "moves": state.moves,
         "result": state.result,
@@ -672,8 +1125,7 @@ def command_games(args: argparse.Namespace) -> None:
     limit = None
     if args.game_mode == "stockfish":
         engine = chess.engine.SimpleEngine.popen_uci(args.stockfish)
-        if args.stockfish_elo > 0:
-            engine.configure({"UCI_LimitStrength": True, "UCI_Elo": args.stockfish_elo})
+        configure_stockfish_strength(engine, args.stockfish_elo)
         limit = stockfish_limit(args)
 
     try:
@@ -1104,6 +1556,26 @@ def build_parser() -> argparse.ArgumentParser:
     legality.add_argument("--top-illegal", type=int, default=20)
     legality.set_defaults(func=command_legality)
 
+    api_legality = sub.add_parser("api-legality", help="Prompted API-model legality on fixed positions")
+    api_legality.add_argument("--models", nargs="+", required=True)
+    add_position_args(api_legality)
+    api_legality.add_argument("--output", required=True)
+    api_legality.add_argument("--api-key", default="")
+    api_legality.add_argument("--base-url", default="https://openrouter.ai/api/v1")
+    api_legality.add_argument("--app-name", default="nanoDanya benchmark")
+    api_legality.add_argument("--site-url", default="")
+    api_legality.add_argument("--timeout", type=float, default=30.0)
+    api_legality.add_argument("--retries", type=int, default=2)
+    api_legality.add_argument("--retry-sleep", type=float, default=2.0)
+    api_legality.add_argument("--concurrency", type=int, default=8)
+    api_legality.add_argument("--sleep", type=float, default=0.0)
+    api_legality.add_argument("--progress-every", type=int, default=100)
+    api_legality.add_argument("--resume", action="store_true")
+    api_legality.add_argument("--top-errors", type=int, default=20)
+    api_legality.add_argument("--write-positions", action=argparse.BooleanOptionalAction, default=True)
+    api_legality.add_argument("--write-prompts", action="store_true")
+    api_legality.set_defaults(func=command_api_legality)
+
     termination = sub.add_parser("termination", help="Raw EOS propensity on non-terminal positions")
     add_common_model_args(termination)
     add_position_args(termination)
@@ -1138,6 +1610,7 @@ def build_parser() -> argparse.ArgumentParser:
     games.add_argument("--max-plies", type=int, default=200)
     games.add_argument("--temperature", type=float, default=0.8)
     games.add_argument("--prompt", default="")
+    games.add_argument("--seed", type=int, default=0)
     games.add_argument("--allow-eos", action="store_true")
     games.add_argument("--legal-mask", action=argparse.BooleanOptionalAction, default=True)
     games.add_argument("--kv-cache", action="store_true", help="Use batched KV-cache decoding for h2h games")
@@ -1151,10 +1624,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    random.seed(0)
-    torch.manual_seed(0)
     parser = build_parser()
     args = parser.parse_args()
+    seed = getattr(args, "seed", 0)
+    random.seed(seed)
+    torch.manual_seed(seed)
     if getattr(args, "game_mode", None) == "h2h" and not args.opponent_model:
         parser.error("games --game-mode h2h requires --opponent-model")
     t0 = time.time()

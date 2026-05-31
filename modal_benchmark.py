@@ -7,6 +7,12 @@ ignore = modal.FilePatternMatcher.from_file(".modalignore")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ca-certificates", "curl")
+    .run_commands(
+        "curl -L --fail -o /usr/local/bin/fairy-stockfish "
+        "https://github.com/fairy-stockfish/Fairy-Stockfish/releases/latest/download/fairy-stockfish-largeboard_x86-64",
+        "chmod +x /usr/local/bin/fairy-stockfish",
+    )
     .pip_install(
         "numpy",
         "torch==2.5.1+cu124",
@@ -102,6 +108,99 @@ def _run_batched_h2h(
     return summary
 
 
+def _run_batched_stockfish(
+    model: str,
+    stockfish_elo: int = 500,
+    games: int = 50,
+    temperature: float = 0.8,
+    batch_size: int = 64,
+    max_plies: int = 200,
+    game_offset: int = 0,
+    seed: int = 0,
+    stockfish: str = "/usr/local/bin/fairy-stockfish",
+    stockfish_time: float = 0.02,
+    stockfish_depth: int = 0,
+    stockfish_nodes: int = 0,
+):
+    import json
+    import os
+    import subprocess
+    import time
+    from pathlib import Path
+
+    project_root = Path("/root/project")
+    output = Path("/tmp/stockfish_games.jsonl")
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONPATH"] = f"{project_root}:{project_root / 'nanochat'}"
+
+    started = time.time()
+    cmd = [
+        "python",
+        "benchmark/run.py",
+        "games",
+        "--game-mode",
+        "stockfish",
+        "--model",
+        model,
+        "--stockfish",
+        stockfish,
+        "--stockfish-elo",
+        str(stockfish_elo),
+        "--stockfish-time",
+        str(stockfish_time),
+        "--stockfish-depth",
+        str(stockfish_depth),
+        "--stockfish-nodes",
+        str(stockfish_nodes),
+        "--games",
+        str(games),
+        "--game-offset",
+        str(game_offset),
+        "--temperature",
+        str(temperature),
+        "--batch-size",
+        str(batch_size),
+        "--max-plies",
+        str(max_plies),
+        "--seed",
+        str(seed),
+        "--output",
+        str(output),
+    ]
+
+    subprocess.run(
+        cmd,
+        check=True,
+        cwd=project_root,
+        env=env,
+    )
+    elapsed = time.time() - started
+    summary = None
+    games_seen = []
+    with output.open() as f:
+        for line in f:
+            record = json.loads(line)
+            if record.get("type") == "games_summary":
+                summary = record
+            elif record.get("type") == "game":
+                games_seen.append(record)
+    if summary is None:
+        raise RuntimeError("benchmark did not write a games_summary record")
+    summary["elapsed"] = elapsed
+    summary["game_offset"] = game_offset
+    summary["seed"] = seed
+    summary["model_a"] = model
+    summary["model_b"] = f"sf{stockfish_elo}"
+    summary["stockfish_elo"] = stockfish_elo
+    summary["stockfish"] = stockfish
+    summary["stockfish_time"] = stockfish_time
+    summary["stockfish_depth"] = stockfish_depth
+    summary["stockfish_nodes"] = stockfish_nodes
+    summary["game_records"] = games_seen
+    return summary
+
+
 def _run_legality(
     model: str,
     data_dir: str = "/data/actual_5m",
@@ -156,6 +255,182 @@ def _run_legality(
     return output.read_text()
 
 
+def _run_king_safety_legality(
+    model: str,
+    hard_data_dir: str = "/data/king_safety_sft",
+    split: str = "val",
+    max_positions: int = 4096,
+    batch_size: int = 128,
+    device: str = "cuda",
+    top_illegal: int = 20,
+    write_failures: int = 0,
+):
+    import os
+    import subprocess
+    from pathlib import Path
+
+    project_root = Path("/root/project")
+    output = Path("/tmp/king_safety_legality.jsonl")
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONPATH"] = f"{project_root}:{project_root / 'nanochat'}"
+
+    cmd = [
+        "python",
+        "benchmark/king_safety_legality.py",
+        "--model",
+        model,
+        "--hard-data-dir",
+        hard_data_dir,
+        "--split",
+        split,
+        "--max-positions",
+        str(max_positions),
+        "--batch-size",
+        str(batch_size),
+        "--device",
+        device,
+        "--top-illegal",
+        str(top_illegal),
+        "--write-failures",
+        str(write_failures),
+        "--output",
+        str(output),
+    ]
+
+    subprocess.run(cmd, check=True, cwd=project_root, env=env)
+    return output.read_text()
+
+
+def _inspect_legality_failures(
+    model: str,
+    data_dir: str = "/data/actual_5m",
+    split: str = "val",
+    phase: str = "opening",
+    max_positions: int = 4096,
+    batch_size: int = 128,
+    max_ply: int = 140,
+    max_games: int = 0,
+    allow_eos: bool = False,
+    device: str = "cuda",
+):
+    import json
+    import sys
+    from pathlib import Path
+
+    import chess
+
+    project_root = Path("/root/project")
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    nanochat_root = project_root / "nanochat"
+    if str(nanochat_root) not in sys.path:
+        sys.path.insert(0, str(nanochat_root))
+
+    from benchmark.run import (
+        last_logits_for_prefixes,
+        load_model,
+        load_token_games,
+        phase_for_ply,
+        raw_metrics_from_logits,
+        resolve_device,
+    )
+    from chess_token_utils import normalized_legal_sans, resolve_token_id
+
+    device = resolve_device(device)
+    loaded_model, _, stoi, itos = load_model(model, device)
+    games, _ = load_token_games(Path(data_dir), split, max_games)
+
+    positions = []
+    bos_id = stoi["<bos>"]
+    for game_index, game in enumerate(games):
+        board = chess.Board()
+        prefix_ids = [bos_id]
+        moves = []
+        ply = 0
+        for token in game[1:]:
+            if token == "<eos>":
+                break
+            target_id = resolve_token_id(stoi, token)
+            if target_id is None:
+                break
+            ply += 1
+            if max_ply <= 0 or ply <= max_ply:
+                positions.append(
+                    {
+                        "board": board.copy(stack=False),
+                        "prefix_ids": prefix_ids.copy(),
+                        "ply": ply,
+                        "game_index": game_index,
+                        "moves": moves.copy(),
+                    }
+                )
+                if max_positions > 0 and len(positions) >= max_positions:
+                    break
+            try:
+                board.push_san(token)
+            except ValueError:
+                break
+            prefix_ids.append(target_id)
+            moves.append(token)
+        if max_positions > 0 and len(positions) >= max_positions:
+            break
+
+    failures = []
+    prefixes = [pos["prefix_ids"] for pos in positions]
+    for idx, logits in last_logits_for_prefixes(
+        loaded_model,
+        prefixes,
+        pad_id=stoi["<eos>"],
+        device=device,
+        batch_size=batch_size,
+    ):
+        pos = positions[idx]
+        if phase and phase_for_ply(pos["ply"]) != phase:
+            continue
+        metrics = raw_metrics_from_logits(
+            logits,
+            pos["board"],
+            stoi,
+            itos,
+            allow_eos=allow_eos,
+        )
+        if metrics["raw_top1_legal"]:
+            continue
+        legal_sans = sorted(normalized_legal_sans(pos["board"]))
+        failures.append(
+            {
+                "model": model,
+                "data_dir": data_dir,
+                "split": split,
+                "phase": phase_for_ply(pos["ply"]),
+                "ply": pos["ply"],
+                "game_index": pos["game_index"],
+                "moves": pos["moves"],
+                "fen": pos["board"].fen(),
+                "raw_top1": metrics["raw_top1"],
+                "raw_top1_under_disambiguated": metrics["raw_top1_under_disambiguated"],
+                "raw_top1_under_disambiguated_matches": metrics["raw_top1_under_disambiguated_matches"],
+                "raw_top1_prob": metrics["raw_top1_prob"],
+                "legal_mass": metrics["legal_mass"],
+                "legal_sans": legal_sans,
+            }
+        )
+
+    return json.dumps(
+        {
+            "type": "legality_failures",
+            "model": model,
+            "data_dir": data_dir,
+            "split": split,
+            "phase": phase,
+            "max_positions": max_positions,
+            "failures": failures,
+        },
+        sort_keys=True,
+    )
+
+
 @app.function(
     image=image,
     gpu="A100",
@@ -199,6 +474,52 @@ def benchmark_h2h_shard(spec: dict):
 @app.function(
     image=image,
     gpu="A100",
+    timeout=60 * 60 * 2,
+    volumes={"/data": volume},
+)
+def benchmark_stockfish(
+    model: str,
+    stockfish_elo: int = 500,
+    games: int = 50,
+    temperature: float = 0.8,
+    batch_size: int = 64,
+    max_plies: int = 200,
+    game_offset: int = 0,
+    seed: int = 0,
+    stockfish: str = "/usr/local/bin/fairy-stockfish",
+    stockfish_time: float = 0.02,
+    stockfish_depth: int = 0,
+    stockfish_nodes: int = 0,
+):
+    return _run_batched_stockfish(
+        model=model,
+        stockfish_elo=stockfish_elo,
+        games=games,
+        temperature=temperature,
+        batch_size=batch_size,
+        max_plies=max_plies,
+        game_offset=game_offset,
+        seed=seed,
+        stockfish=stockfish,
+        stockfish_time=stockfish_time,
+        stockfish_depth=stockfish_depth,
+        stockfish_nodes=stockfish_nodes,
+    )
+
+
+@app.function(
+    image=image,
+    gpu="A100",
+    timeout=60 * 60 * 2,
+    volumes={"/data": volume},
+)
+def benchmark_stockfish_shard(spec: dict):
+    return _run_batched_stockfish(**spec)
+
+
+@app.function(
+    image=image,
+    gpu="A100",
     timeout=60 * 30,
     volumes={"/data": volume},
 )
@@ -224,6 +545,66 @@ def benchmark_legality(
         max_games=max_games,
         allow_eos=allow_eos,
         top_illegal=top_illegal,
+        device=device,
+    )
+
+
+@app.function(
+    image=image,
+    gpu="A100",
+    timeout=60 * 30,
+    volumes={"/data": volume},
+)
+def benchmark_king_safety_legality(
+    model: str = "plain/games-5m",
+    hard_data_dir: str = "/data/king_safety_sft",
+    split: str = "val",
+    max_positions: int = 4096,
+    batch_size: int = 128,
+    device: str = "cuda",
+    top_illegal: int = 20,
+    write_failures: int = 0,
+):
+    return _run_king_safety_legality(
+        model=model,
+        hard_data_dir=hard_data_dir,
+        split=split,
+        max_positions=max_positions,
+        batch_size=batch_size,
+        device=device,
+        top_illegal=top_illegal,
+        write_failures=write_failures,
+    )
+
+
+@app.function(
+    image=image,
+    gpu="A100",
+    timeout=60 * 30,
+    volumes={"/data": volume},
+)
+def inspect_legality_failures(
+    model: str = "plain/games-5m",
+    data_dir: str = "/data/actual_5m",
+    split: str = "val",
+    phase: str = "opening",
+    max_positions: int = 4096,
+    batch_size: int = 128,
+    max_ply: int = 140,
+    max_games: int = 0,
+    allow_eos: bool = False,
+    device: str = "cuda",
+):
+    return _inspect_legality_failures(
+        model=model,
+        data_dir=data_dir,
+        split=split,
+        phase=phase,
+        max_positions=max_positions,
+        batch_size=batch_size,
+        max_ply=max_ply,
+        max_games=max_games,
+        allow_eos=allow_eos,
         device=device,
     )
 
@@ -294,8 +675,19 @@ def _print_combined_summary(model_a: str, model_b: str, summaries: list[dict], w
 
 @app.local_entrypoint()
 def main(
+    mode: str = "h2h",
+    model: str = "plain/games-5m",
     model_a: str = "plain/games-3m",
     model_b: str = "plain/puzzles-5m",
+    data_dir: str = "/data/actual_5m",
+    hard_data_dir: str = "/data/king_safety_sft",
+    split: str = "val",
+    max_positions: int = 4096,
+    max_ply: int = 140,
+    max_games: int = 0,
+    allow_eos: bool = False,
+    top_illegal: int = 20,
+    write_failures: int = 0,
     games: int = 50,
     temperature: float = 0.8,
     batch_size: int = 64,
@@ -303,11 +695,147 @@ def main(
     shards: int = 1,
     kv_cache: bool = False,
     seed: int = 0,
+    stockfish_elo: int = 500,
+    stockfish: str = "/usr/local/bin/fairy-stockfish",
+    stockfish_time: float = 0.02,
+    stockfish_depth: int = 0,
+    stockfish_nodes: int = 0,
     output: str = "",
 ):
     import json
     import time
     from pathlib import Path
+
+    if mode == "legality":
+        text = benchmark_legality.remote(
+            model=model,
+            data_dir=data_dir,
+            split=split,
+            max_positions=max_positions,
+            batch_size=batch_size,
+            max_ply=max_ply,
+            max_games=max_games,
+            allow_eos=allow_eos,
+            top_illegal=top_illegal,
+            device="cuda",
+        )
+        if not output:
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            output = f"benchmark/modal_legality_{stamp}.jsonl"
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(text)
+        print(text)
+        print(f"wrote {out_path}")
+        return
+
+    if mode == "king-safety-legality":
+        text = benchmark_king_safety_legality.remote(
+            model=model,
+            hard_data_dir=hard_data_dir,
+            split=split,
+            max_positions=max_positions,
+            batch_size=batch_size,
+            device="cuda",
+            top_illegal=top_illegal,
+            write_failures=write_failures,
+        )
+        if not output:
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            output = f"benchmark/modal_king_safety_legality_{stamp}.jsonl"
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(text)
+        print(text)
+        print(f"wrote {out_path}")
+        return
+
+    if mode == "stockfish":
+        started = time.time()
+        splits = _split_games(games, shards)
+        opponent = f"sf{stockfish_elo}"
+        print(
+            f"Running {games} games against {opponent} with {len(splits)} shard(s), "
+            f"batch_size={batch_size}, max_plies={max_plies}, temp={temperature}, "
+            f"seed={seed}"
+        )
+        if len(splits) == 1:
+            summaries = [
+                benchmark_stockfish.remote(
+                    model,
+                    stockfish_elo,
+                    games,
+                    temperature,
+                    batch_size,
+                    max_plies,
+                    0,
+                    seed,
+                    stockfish,
+                    stockfish_time,
+                    stockfish_depth,
+                    stockfish_nodes,
+                )
+            ]
+        else:
+            jobs = [
+                {
+                    "model": model,
+                    "stockfish_elo": stockfish_elo,
+                    "games": count,
+                    "temperature": temperature,
+                    "batch_size": batch_size,
+                    "max_plies": max_plies,
+                    "game_offset": offset,
+                    "seed": seed + offset,
+                    "stockfish": stockfish,
+                    "stockfish_time": stockfish_time,
+                    "stockfish_depth": stockfish_depth,
+                    "stockfish_nodes": stockfish_nodes,
+                }
+                for offset, count in splits
+            ]
+            summaries = list(benchmark_stockfish_shard.map(jobs))
+        wall_time = time.time() - started
+        summary, game_records = _print_combined_summary(model, opponent, summaries, wall_time)
+        summary["stockfish_elo"] = stockfish_elo
+        summary["stockfish"] = stockfish
+        summary["stockfish_time"] = stockfish_time
+        summary["stockfish_depth"] = stockfish_depth
+        summary["stockfish_nodes"] = stockfish_nodes
+
+        if not output:
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            output = f"benchmark/modal_stockfish_{stamp}.jsonl"
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        run_record = {
+            "type": "run",
+            "schema_version": 1,
+            "command": "modal_stockfish",
+            "config": {
+                "model": model,
+                "opponent": opponent,
+                "games": games,
+                "temperature": temperature,
+                "batch_size": batch_size,
+                "max_plies": max_plies,
+                "shards": shards,
+                "seed": seed,
+                "stockfish_elo": stockfish_elo,
+                "stockfish": stockfish,
+                "stockfish_time": stockfish_time,
+                "stockfish_depth": stockfish_depth,
+                "stockfish_nodes": stockfish_nodes,
+            },
+        }
+        with out_path.open("w") as f:
+            for record in [run_record, *game_records, summary]:
+                f.write(json.dumps(record, sort_keys=True) + "\n")
+        print(f"wrote full game records to {out_path}")
+        return
+
+    if mode != "h2h":
+        raise ValueError(f"unsupported mode: {mode}")
 
     started = time.time()
     splits = _split_games(games, shards)
