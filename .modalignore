@@ -17,6 +17,10 @@ __pycache__/
 .ipynb_checkpoints/
 output/
 results.jsonl
+blog/
+blog.html
+blog.preview.css
 benchmark/*.jsonl
+benchmark/*.json
 benchmark/*.html
 probes/*.html
