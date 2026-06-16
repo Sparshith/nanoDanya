@@ -14,6 +14,7 @@ image = modal.Image.debian_slim(python_version="3.11").pip_install(
 
 NANODANYA_API_URL = "https://sparshithsampath--nanodanya-chess-serve.modal.run/move"
 BOT_TIMEOUT_SECONDS = 24 * 60 * 60
+RUN_SECONDS = int(23.5 * 60 * 60)
 
 
 @app.function(
@@ -23,7 +24,7 @@ BOT_TIMEOUT_SECONDS = 24 * 60 * 60
     timeout=BOT_TIMEOUT_SECONDS,
     cpu=0.125,
     memory=256,
-    max_containers=1,
+    max_containers=2,
 )
 def run_bot():
     import os
@@ -176,10 +177,19 @@ def run_bot():
     token = os.environ["LICHESS_BOT_TOKEN"]
     bot = NanoDanyaBot(token)
 
-    while True:
-        try:
-            bot.run()
-        except Exception as e:
-            print(f"Error: {e}")
-            print("Reconnecting in 5 seconds...")
-            time.sleep(5)
+    def listen():
+        while True:
+            try:
+                bot.run()
+            except Exception as e:
+                print(f"Error: {e}")
+                print("Reconnecting in 5 seconds...")
+                time.sleep(5)
+
+    listener = threading.Thread(target=listen, daemon=True)
+    listener.start()
+
+    deadline = time.time() + RUN_SECONDS
+    while time.time() < deadline:
+        time.sleep(30)
+    print("Reached soft deadline, exiting cleanly for the next scheduled run")
