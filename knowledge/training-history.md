@@ -23,7 +23,7 @@ experiments/. What this file preserves is the recipes and dataset facts.
 **Baseline (plain/games-500k)**: L12/H6/E768, AdamW lr 1e-4, batch 32, 50k iters,
 plain CE. Early result 67W/3L/30D vs SF500.
 
-**plain/puzzles-500k control**: built by `puzzles/scripts/build_weighted_data.py`,
+**plain/puzzles-500k control**: built by `data_prep/build_weighted_data.py`,
 trained with `UNIFORM_WEIGHTS=1`, batch 64, early stopping on uniform val loss
 (patience 20, min steps 3000, min delta 0.001; best hit at step 9300). Dataset:
 500k games, 40.8M tokens (36.8M train / 4.1M val).
@@ -38,7 +38,7 @@ trained with `UNIFORM_WEIGHTS=1`, batch 64, early stopping on uniform val loss
 `build_weighted_data.py --weight 5.0`, weighted CE
 (`(per_token * w).sum() / w.sum()`). Negative result.
 
-**eval dataset** (`datasets/eval/base`): built by `data/prepare_eval_data.py` from
+**eval dataset** (`datasets/eval/base`): built by `data_prep/prepare_eval_data.py` from
 the 3.19M-game ndjson; strips `+`/`#`, prunes SAN tokens with freq < 5, context 512.
 Weight rule: `w[t] = 1 + 4.0 * |eval[t] - eval[t-1]|` with evals clipped to
 [-1500, 1500] and normalized to [-1, 1], times an endgame ramp after move 30.

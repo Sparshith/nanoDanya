@@ -92,6 +92,9 @@ linearly readable from hidden states and improve with data
   big phase after the puzzle-eval GO, not started.
 - Judge-without-selection uses for the eval head (blunder-check veto, resign/draw
   decisions) are unexplored.
+- Eval-as-tokens is untried (from the Feb planning notes): inject discretized eval
+  tokens into the move sequence (`<+0.5> e4 <-0.3> e5`) so the model predicts evals
+  inline. Candidate objective for the eval-aware rewrite alongside the boxed head.
 - Eval-aware training is being rewritten from scratch (old scripts and checkpoints
   deleted 2026-07-04). Building blocks that survive in `training/common.py`:
   `forward_hidden`/`move_logits` for backbone access; the boxed win-prob recipe

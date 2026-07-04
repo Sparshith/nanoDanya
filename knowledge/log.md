@@ -120,3 +120,15 @@ reproducibility notes). New [modal.md](modal.md) documents how we use Modal (app
 volume layout, training/benchmark commands, env knobs, smoke-test pattern); the
 local README_LAYOUT.md is deleted, its volume-side copy stays. knowledge/ is now
 the only knowledge location.
+
+## 2026-07-04 tracked the dataset prep scripts in data_prep/
+
+Moved the four live dataset builders out of gitignored dirs into tracked
+`data_prep/`: `prepare_actual_data.py`, `prepare_eval_data.py`,
+`download_games.py`, `build_weighted_data.py`. Deleted the abandoned
+board-token puzzle format scripts (download_puzzles, convert_puzzle,
+generate_puzzle_vocab) and `puzzles/puzzle_training.md` after lifting its untried
+eval-as-tokens idea into STATE.md open questions. `rc_extract_actual_games.py`
+lives on RapidCanvas, not here; its filters are recorded in the modal.md lineage
+section. Note: the extracted game shards went away with `archive/`, so rebuilding
+a games dataset differently means re-extracting from the public Lichess dumps.

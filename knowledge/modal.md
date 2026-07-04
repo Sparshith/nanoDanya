@@ -60,6 +60,28 @@ rates + PNG curve). Results land in `benchmark/results/` (gitignored, kept local
 as the evidence base for knowledge/ notes). Model refs are registry aliases from
 `model_registry.py`.
 
+## Data lineage
+
+```
+Lichess monthly dump ──(RapidCanvas job: Elo>=2000, >=30 plies,
+       │                Rapid/Classical, month 2025-01)──> game shards
+       │                                                       │
+       │                              (shards deleted with archive/; re-extract
+       │                               on RapidCanvas if a games dataset must be
+       │                               rebuilt differently)
+       │                                                       │
+       │                        data_prep/prepare_actual_data.py ──> datasets/games/*
+       │
+Lichess puzzle CSV + game-export API
+       └─(data_prep/download_games.py)──> puzzles_raw/{puzzle_games_ndjson.txt,
+                                                       puzzle_metadata.txt}
+              ├─(data_prep/build_weighted_data.py)──> datasets/puzzles/*
+              └─(data_prep/prepare_eval_data.py)───> datasets/eval/base
+```
+
+Retraining existing models never needs the upstream steps; the prepared bins are
+on the volume. The upstream chain only matters for building a dataset differently.
+
 ## Volume CLI
 
 ```bash
