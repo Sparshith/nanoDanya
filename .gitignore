@@ -29,6 +29,6 @@ CLAUDE.md
 data/
 models/
 scratchpad/
-knowledge/_old-wiki/
 probes/*.html
 benchmark/results/
+knowledge/

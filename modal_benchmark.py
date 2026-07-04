@@ -20,6 +20,7 @@ image = (
         "tiktoken",
         "python-chess",
         "pyarrow",
+        "matplotlib",
         extra_index_url="https://download.pytorch.org/whl/cu124",
     )
     .add_local_dir(".", "/root/project", ignore=ignore)
@@ -255,6 +256,60 @@ def _run_legality(
     return output.read_text()
 
 
+def _run_move_quality(
+    model: str,
+    data_dir: str = "/data/datasets/eval/base",
+    split: str = "val",
+    max_positions: int = 600,
+    max_ply: int = 140,
+    max_games: int = 0,
+    batch_size: int = 64,
+    stockfish: str = "/usr/local/bin/fairy-stockfish",
+    stockfish_time: float = 0.05,
+    device: str = "cuda",
+):
+    import os
+    import subprocess
+    from pathlib import Path
+
+    project_root = Path("/root/project")
+    output = Path("/tmp/move_quality.jsonl")
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONPATH"] = f"{project_root}:{project_root / 'nanochat'}"
+
+    cmd = [
+        "python",
+        "benchmark/run.py",
+        "move-quality",
+        "--model",
+        model,
+        "--data-dir",
+        data_dir,
+        "--split",
+        split,
+        "--max-positions",
+        str(max_positions),
+        "--max-ply",
+        str(max_ply),
+        "--max-games",
+        str(max_games),
+        "--batch-size",
+        str(batch_size),
+        "--stockfish",
+        stockfish,
+        "--stockfish-time",
+        str(stockfish_time),
+        "--device",
+        device,
+        "--output",
+        str(output),
+    ]
+
+    subprocess.run(cmd, check=True, cwd=project_root, env=env)
+    return output.read_text()
+
+
 def _run_king_safety_legality(
     model: str,
     hard_data_dir: str = "/data/king_safety_sft",
@@ -431,6 +486,114 @@ def _inspect_legality_failures(
     )
 
 
+def _run_puzzles(
+    model: str,
+    ndjson: str = "/data/puzzles_raw/puzzle_games_ndjson.txt",
+    metadata: str = "/data/puzzles_raw/puzzle_metadata.txt",
+    rating_min: int = 600,
+    rating_max: int = 2800,
+    bin_width: int = 100,
+    per_bin: int = 400,
+    scan_cap: int = 0,
+    batch_size: int = 256,
+    write_positions: bool = False,
+    device: str = "cuda",
+):
+    import base64
+    import json
+    import os
+    import subprocess
+    from pathlib import Path
+
+    project_root = Path("/root/project")
+    output = Path("/tmp/puzzles.jsonl")
+    plot = Path("/tmp/puzzles.png")
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONPATH"] = f"{project_root}:{project_root / 'nanochat'}"
+
+    cmd = [
+        "python",
+        "benchmark/run.py",
+        "puzzles",
+        "--model",
+        model,
+        "--ndjson",
+        ndjson,
+        "--metadata",
+        metadata,
+        "--rating-min",
+        str(rating_min),
+        "--rating-max",
+        str(rating_max),
+        "--bin-width",
+        str(bin_width),
+        "--per-bin",
+        str(per_bin),
+        "--scan-cap",
+        str(scan_cap),
+        "--batch-size",
+        str(batch_size),
+        "--device",
+        device,
+        "--output",
+        str(output),
+        "--plot",
+        str(plot),
+    ]
+    if write_positions:
+        cmd.append("--write-positions")
+
+    subprocess.run(cmd, check=True, cwd=project_root, env=env)
+
+    summary = None
+    positions = []
+    with output.open() as f:
+        for line in f:
+            record = json.loads(line)
+            if record.get("type") == "puzzles_summary":
+                summary = record
+            elif record.get("type") == "puzzle_position":
+                positions.append(record)
+    if summary is None:
+        raise RuntimeError("benchmark did not write a puzzles_summary record")
+    png_b64 = base64.b64encode(plot.read_bytes()).decode() if plot.exists() else None
+    return {"summary": summary, "positions": positions, "png_b64": png_b64}
+
+
+@app.function(
+    image=image,
+    gpu="A100",
+    timeout=60 * 60 * 2,
+    volumes={"/data": volume},
+)
+def benchmark_puzzles(
+    model: str = "/data/actual_15m/chess_actual_15m_uniform_L16_H8_E1024_best.pt",
+    ndjson: str = "/data/puzzles_raw/puzzle_games_ndjson.txt",
+    metadata: str = "/data/puzzles_raw/puzzle_metadata.txt",
+    rating_min: int = 600,
+    rating_max: int = 2800,
+    bin_width: int = 100,
+    per_bin: int = 400,
+    scan_cap: int = 0,
+    batch_size: int = 256,
+    write_positions: bool = False,
+):
+    return _run_puzzles(
+        model=model,
+        ndjson=ndjson,
+        metadata=metadata,
+        rating_min=rating_min,
+        rating_max=rating_max,
+        bin_width=bin_width,
+        per_bin=per_bin,
+        scan_cap=scan_cap,
+        batch_size=batch_size,
+        write_positions=write_positions,
+        device="cuda",
+    )
+
+
 @app.function(
     image=image,
     gpu="A100",
@@ -546,6 +709,35 @@ def benchmark_legality(
         allow_eos=allow_eos,
         top_illegal=top_illegal,
         device=device,
+    )
+
+
+@app.function(
+    image=image,
+    gpu="A100",
+    timeout=60 * 60,
+    volumes={"/data": volume},
+)
+def benchmark_move_quality(
+    model: str,
+    data_dir: str = "/data/datasets/eval/base",
+    split: str = "val",
+    max_positions: int = 600,
+    max_ply: int = 140,
+    max_games: int = 0,
+    batch_size: int = 64,
+    stockfish_time: float = 0.05,
+):
+    return _run_move_quality(
+        model=model,
+        data_dir=data_dir,
+        split=split,
+        max_positions=max_positions,
+        max_ply=max_ply,
+        max_games=max_games,
+        batch_size=batch_size,
+        stockfish_time=stockfish_time,
+        device="cuda",
     )
 
 
@@ -700,11 +892,51 @@ def main(
     stockfish_time: float = 0.02,
     stockfish_depth: int = 0,
     stockfish_nodes: int = 0,
+    rating_min: int = 600,
+    rating_max: int = 2800,
+    bin_width: int = 100,
+    per_bin: int = 400,
+    scan_cap: int = 0,
+    write_positions: bool = False,
     output: str = "",
 ):
+    import base64
     import json
     import time
     from pathlib import Path
+
+    if mode == "puzzles":
+        puzzle_model = model if model != "plain/games-5m" else "/data/actual_15m/chess_actual_15m_uniform_L16_H8_E1024_best.pt"
+        result = benchmark_puzzles.remote(
+            model=puzzle_model,
+            rating_min=rating_min,
+            rating_max=rating_max,
+            bin_width=bin_width,
+            per_bin=per_bin,
+            scan_cap=scan_cap,
+            batch_size=batch_size if batch_size > 64 else 256,
+            write_positions=write_positions,
+        )
+        summary = result["summary"]
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        if not output:
+            output = f"benchmark/results/modal_puzzles_{stamp}.jsonl"
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        records = [summary, *result["positions"]]
+        with out_path.open("w") as f:
+            for record in records:
+                f.write(json.dumps(record, sort_keys=True) + "\n")
+        if result["png_b64"]:
+            png_path = out_path.with_suffix(".png")
+            png_path.write_bytes(base64.b64decode(result["png_b64"]))
+            print(f"wrote plot {png_path}")
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        print(f"model: {puzzle_model}")
+        print(f"first-move acc {summary['first_move_acc']:.3f} | full-solve acc {summary['full_solve_acc']:.3f} "
+              f"over {summary['puzzles_scored']} puzzles")
+        print(f"wrote {out_path}")
+        return
 
     if mode == "legality":
         text = benchmark_legality.remote(
@@ -721,7 +953,29 @@ def main(
         )
         if not output:
             stamp = time.strftime("%Y%m%d_%H%M%S")
-            output = f"benchmark/modal_legality_{stamp}.jsonl"
+            output = f"benchmark/results/modal_legality_{stamp}.jsonl"
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(text)
+        print(text)
+        print(f"wrote {out_path}")
+        return
+
+    if mode == "move-quality":
+        mq_data_dir = "/data/datasets/eval/base" if data_dir == "/data/actual_5m" else data_dir
+        text = benchmark_move_quality.remote(
+            model=model,
+            data_dir=mq_data_dir,
+            split=split,
+            max_positions=max_positions,
+            max_ply=max_ply,
+            max_games=max_games,
+            batch_size=batch_size,
+            stockfish_time=stockfish_time,
+        )
+        if not output:
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            output = f"benchmark/results/modal_move_quality_{stamp}.jsonl"
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(text)
@@ -742,7 +996,7 @@ def main(
         )
         if not output:
             stamp = time.strftime("%Y%m%d_%H%M%S")
-            output = f"benchmark/modal_king_safety_legality_{stamp}.jsonl"
+            output = f"benchmark/results/modal_king_safety_legality_{stamp}.jsonl"
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(text)
@@ -805,7 +1059,7 @@ def main(
 
         if not output:
             stamp = time.strftime("%Y%m%d_%H%M%S")
-            output = f"benchmark/modal_stockfish_{stamp}.jsonl"
+            output = f"benchmark/results/modal_stockfish_{stamp}.jsonl"
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         run_record = {
@@ -879,7 +1133,7 @@ def main(
 
     if not output:
         stamp = time.strftime("%Y%m%d_%H%M%S")
-        output = f"benchmark/modal_h2h_{stamp}.jsonl"
+        output = f"benchmark/results/modal_h2h_{stamp}.jsonl"
     out_path = Path(output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     run_record = {

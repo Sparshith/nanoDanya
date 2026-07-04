@@ -1,7 +1,12 @@
 import json
+import os
 import modal
 
 app = modal.App("nanodanya-train")
+
+# A100 now requires a payment method on file (credits alone no longer unlock it).
+# Set MODAL_GPU (e.g. A10G, L4, L40S) to run on a credit-eligible GPU.
+GPU = os.environ.get("MODAL_GPU", "A100")
 
 ignore = modal.FilePatternMatcher.from_file(".modalignore")
 
@@ -41,7 +46,7 @@ def parse_env_overrides(raw: str) -> dict[str, str]:
 
 @app.function(
     image=image,
-    gpu="A100",
+    gpu=GPU,
     timeout=60 * 60 * 12,
     volumes={"/data": volume},
 )
@@ -85,7 +90,6 @@ def train(datasets: str, script: str, env_overrides: str = ""):
 
 
 @app.local_entrypoint()
-def main(datasets: str = "processed", script: str = "training/train.py", gpu: str = "A100", env_overrides: str = ""):
-    if gpu != "A100":
-        print("Ignoring gpu override; training is pinned to A100 in @app.function.")
+def main(datasets: str = "processed", script: str = "training/train.py", gpu: str = "", env_overrides: str = ""):
+    print(f"GPU: {GPU} (set via MODAL_GPU env var)")
     train.remote(datasets, script, env_overrides)

@@ -862,7 +862,7 @@ def cp_for_side(engine: chess.engine.SimpleEngine, board: chess.Board, side: che
 @torch.inference_mode()
 def command_move_quality(args: argparse.Namespace) -> None:
     device = resolve_device(args.device)
-    model, _, stoi, itos = load_model(args.model, device)
+    model, model_config, stoi, itos = load_model(args.model, device)
     positions = collect_positions(
         data_dir=Path(args.data_dir),
         split=args.split,
@@ -876,6 +876,7 @@ def command_move_quality(args: argparse.Namespace) -> None:
 
     records = [run_record("move-quality", args, {"device": device, "stockfish_limit": str(limit)})]
     losses: list[int] = []
+    best_move_matches = 0
     failures = 0
 
     try:
@@ -889,19 +890,19 @@ def command_move_quality(args: argparse.Namespace) -> None:
                 batch_size=args.batch_size,
             )
         )
+        tokens_by_index = {}
+        for idx, pos in enumerate(positions):
+            _nid, token = choose_move_from_logits(
+                logits_by_index[idx], pos.board, stoi, itos,
+                temperature=0.0, allow_eos=False, legal_mask=True,
+            )
+            if token is not None:
+                tokens_by_index[idx] = token
+
         for idx, pos in enumerate(positions):
             side = pos.board.turn
-            before_cp = cp_for_side(engine, pos.board, side, limit)
-            next_id, token = choose_move_from_logits(
-                logits_by_index[idx],
-                pos.board,
-                stoi,
-                itos,
-                temperature=0.0,
-                allow_eos=False,
-                legal_mask=True,
-            )
-            if next_id is None or token is None:
+            token = tokens_by_index.get(idx)
+            if token is None:
                 failures += 1
                 continue
 
@@ -912,9 +913,14 @@ def command_move_quality(args: argparse.Namespace) -> None:
                 failures += 1
                 continue
 
+            before_cp = cp_for_side(engine, pos.board, side, limit)
+            best_move = engine.play(pos.board, limit).move
+            best_san = strip_san(pos.board.san(best_move))
+            is_best = strip_san(token) == best_san
             after_cp = cp_for_side(engine, board_after, side, limit)
             cp_loss = max(0, before_cp - after_cp)
             losses.append(cp_loss)
+            best_move_matches += int(is_best)
             if args.write_positions:
                 records.append({
                     "type": "move_quality_position",
@@ -923,6 +929,8 @@ def command_move_quality(args: argparse.Namespace) -> None:
                     "ply": pos.ply,
                     "fen": pos.board.fen(),
                     "played": strip_san(token),
+                    "stockfish_best": best_san,
+                    "best_move_match": is_best,
                     "before_cp": before_cp,
                     "after_cp": after_cp,
                     "cp_loss": cp_loss,
@@ -940,6 +948,7 @@ def command_move_quality(args: argparse.Namespace) -> None:
         "failures": failures,
         "avg_cp_loss": statistics.mean(losses) if losses else None,
         "median_cp_loss": statistics.median(losses) if losses else None,
+        "best_move_match_rate": best_move_matches / len(losses) if losses else None,
         "blunder_rate_cp_300": sum(loss >= 300 for loss in losses) / len(losses) if losses else None,
     }
     records.append(summary)
@@ -1078,6 +1087,20 @@ def command_games(args: argparse.Namespace) -> None:
     if args.game_mode == "h2h":
         opponent, opponent_config, opponent_stoi, opponent_itos = load_model(args.opponent_model, device)
 
+    def choose_model_moves(turn_states):
+        return choose_for_states(
+            states=turn_states,
+            model_name="model",
+            model=model,
+            stoi=stoi,
+            itos=itos,
+            device=device,
+            batch_size=args.batch_size,
+            temperature=args.temperature,
+            allow_eos=args.allow_eos,
+            legal_mask=args.legal_mask,
+        )
+
     prompt_moves = [tok for tok in args.prompt.split() if tok]
     tokenizers = {"model": stoi}
     if args.game_mode == "h2h":
@@ -1155,18 +1178,7 @@ def command_games(args: argparse.Namespace) -> None:
                     else:
                         state.prefixes["model"].append(token_id)
 
-                choices = choose_for_states(
-                    states=model_turns,
-                    model_name="model",
-                    model=model,
-                    stoi=stoi,
-                    itos=itos,
-                    device=device,
-                    batch_size=args.batch_size,
-                    temperature=args.temperature,
-                    allow_eos=args.allow_eos,
-                    legal_mask=args.legal_mask,
-                )
+                choices = choose_model_moves(model_turns)
                 for state, next_id, token in choices:
                     apply_model_choice(state, "model", next_id, token, tokenizers, args.allow_eos)
 
@@ -1177,18 +1189,21 @@ def command_games(args: argparse.Namespace) -> None:
                     ("model", model_turns, model, stoi, itos),
                     ("opponent", opponent_turns, opponent, opponent_stoi, opponent_itos),
                 ):
-                    choices = choose_for_states(
-                        states=turn_states,
-                        model_name=model_name,
-                        model=mdl,
-                        stoi=s_to_i,
-                        itos=i_to_s,
-                        device=device,
-                        batch_size=args.batch_size,
-                        temperature=args.temperature,
-                        allow_eos=args.allow_eos,
-                        legal_mask=args.legal_mask,
-                    )
+                    if model_name == "model":
+                        choices = choose_model_moves(turn_states)
+                    else:
+                        choices = choose_for_states(
+                            states=turn_states,
+                            model_name=model_name,
+                            model=mdl,
+                            stoi=s_to_i,
+                            itos=i_to_s,
+                            device=device,
+                            batch_size=args.batch_size,
+                            temperature=args.temperature,
+                            allow_eos=args.allow_eos,
+                            legal_mask=args.legal_mask,
+                        )
                     for state, next_id, token in choices:
                         apply_model_choice(state, model_name, next_id, token, tokenizers, args.allow_eos)
 
@@ -1503,6 +1518,291 @@ def command_loss_by_ply(args: argparse.Namespace) -> None:
     print(f"wrote {args.output}")
 
 
+PUZZLE_ID_RE = re.compile(rb'"id":"([^"]+)"')
+
+
+@dataclass
+class PuzzleState:
+    rating: int
+    bin: int
+    puzzle_id: str
+    game_id: str
+    prefix: list[int]
+    board: chess.Board
+    sol: list[str]
+    ptr: int = 1
+    first_correct: bool | None = None
+    solved: bool = True
+    alive: bool = True
+
+
+def sample_puzzles_by_rating(
+    *,
+    ndjson: Path,
+    metadata: Path,
+    rating_min: int,
+    rating_max: int,
+    bin_width: int,
+    per_bin: int,
+    scan_cap: int,
+) -> tuple[list[dict], dict[int, int], int]:
+    print(f"loading metadata {metadata} ...", flush=True)
+    meta = json.load(metadata.open())
+    print(f"metadata games: {len(meta):,}", flush=True)
+
+    counts = {b: 0 for b in range(rating_min, rating_max, bin_width)}
+    chosen: list[dict] = []
+    scanned = 0
+
+    with ndjson.open("rb") as f:
+        for line in f:
+            scanned += 1
+            if scan_cap and scanned > scan_cap:
+                break
+            match = PUZZLE_ID_RE.search(line)
+            if not match:
+                continue
+            gid = match.group(1).decode()
+            puzzles = meta.get(gid)
+            if not puzzles:
+                continue
+            rating = puzzles[0]["rating"]
+            if rating < rating_min or rating >= rating_max:
+                continue
+            b = rating_min + ((rating - rating_min) // bin_width) * bin_width
+            if counts[b] >= per_bin:
+                continue
+            game = json.loads(line)
+            chosen.append({"game_id": gid, "moves": game["moves"].split(), "puzzle": puzzles[0], "bin": b})
+            counts[b] += 1
+            if all(c >= per_bin for c in counts.values()):
+                break
+
+    print(f"scanned {scanned:,} games, chose {len(chosen)} puzzles", flush=True)
+    return chosen, counts, scanned
+
+
+def build_puzzle_state(item: dict, stoi: dict[str, int], max_len: int) -> PuzzleState | None:
+    """Replay the source game to the puzzle position; return a solvable state or None if unusable."""
+    moves = item["moves"]
+    p = item["puzzle"]
+    move_num = p["move_num"]
+    sol = p["moves"].split()
+    if move_num - 1 > len(moves):
+        return None
+
+    board = chess.Board()
+    prefix = [stoi["<bos>"]]
+    for san in moves[: move_num - 1]:
+        tid = resolve_token_id(stoi, san)
+        if tid is None:
+            return None
+        try:
+            board.push_san(san)
+        except ValueError:
+            return None
+        prefix.append(tid)
+
+    if board.fen() != p["fen"]:
+        return None
+
+    try:
+        lead = board.parse_uci(sol[0])
+    except ValueError:
+        return None
+    lead_tid = resolve_token_id(stoi, board.san(lead))
+    if lead_tid is None:
+        return None
+    prefix.append(lead_tid)
+    board.push(lead)
+    if len(prefix) >= max_len:
+        return None
+
+    return PuzzleState(
+        rating=p["rating"],
+        bin=item["bin"],
+        puzzle_id=p["puzzle_id"],
+        game_id=item["game_id"],
+        prefix=prefix,
+        board=board,
+        sol=sol,
+    )
+
+
+@torch.inference_mode()
+def solve_puzzles(
+    states: list[PuzzleState],
+    model,
+    stoi: dict[str, int],
+    itos,
+    *,
+    device: str,
+    batch_size: int,
+    max_len: int,
+) -> None:
+    """Batched, multi-step solve. Each round every live puzzle is at a solver turn; we predict its
+    move, and if correct apply it plus the forced opponent reply, then re-batch the survivors."""
+    eos_id = stoi["<eos>"]
+    for _ in range(64):
+        active = [s for s in states if s.alive]
+        if not active:
+            break
+        prefixes = [s.prefix for s in active]
+        for idx, logits in last_logits_for_prefixes(
+            model, prefixes, pad_id=eos_id, device=device, batch_size=batch_size
+        ):
+            s = active[idx]
+            next_id, token = choose_move_from_logits(
+                logits, s.board, stoi, itos, temperature=0.0, allow_eos=False, legal_mask=True
+            )
+            expected = s.board.parse_uci(s.sol[s.ptr])
+            model_move = s.board.parse_san(token) if token else None
+            correct = model_move == expected
+            if not correct and model_move is not None:
+                probe = s.board.copy(stack=False)
+                probe.push(model_move)
+                if probe.is_checkmate():
+                    correct = True  # any mate ends the puzzle (Lichess accepts it)
+
+            if s.ptr == 1:
+                s.first_correct = correct
+            if not correct:
+                s.solved = False
+                s.alive = False
+                continue
+
+            s.board.push(model_move)
+            s.prefix.append(next_id)
+            s.ptr += 1
+            if model_move != expected:  # accepted alternative mate; line ends here
+                s.alive = False
+                continue
+            if s.ptr >= len(s.sol):
+                s.alive = False  # matched the whole solver line
+                continue
+
+            reply = s.board.parse_uci(s.sol[s.ptr])
+            reply_tid = resolve_token_id(stoi, s.board.san(reply))
+            s.board.push(reply)
+            s.ptr += 1
+            if reply_tid is None or len(s.prefix) + 1 >= max_len:
+                s.alive = False
+                if s.ptr < len(s.sol):
+                    s.solved = False  # more solver moves remain but we cannot probe further
+                continue
+            s.prefix.append(reply_tid)
+
+
+def maybe_plot_puzzle_curve(by_bin: list[dict], path: str) -> bool:
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return False
+
+    scored = [b for b in by_bin if b["n"] > 0]
+    centers = [(b["rating_lo"] + b["rating_hi"]) / 2 for b in scored]
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    ax.plot(centers, [b["full_solve_acc"] for b in scored], "o-", label="full solve")
+    ax.plot(centers, [b["first_move_acc"] for b in scored], "s--", color="gray", label="first move")
+    ax.set_xlabel("puzzle rating")
+    ax.set_ylabel("accuracy")
+    ax.set_ylim(0, 1)
+    ax.grid(alpha=0.3)
+    ax.legend()
+    ax.set_title("Puzzle accuracy vs rating")
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
+    plt.close(fig)
+    return True
+
+
+@torch.inference_mode()
+def command_puzzles(args: argparse.Namespace) -> None:
+    device = resolve_device(args.device)
+    model, config, stoi, itos = load_model(args.model, device)
+    max_len = config.sequence_len
+
+    items, _bin_counts, scanned = sample_puzzles_by_rating(
+        ndjson=Path(args.ndjson),
+        metadata=Path(args.metadata),
+        rating_min=args.rating_min,
+        rating_max=args.rating_max,
+        bin_width=args.bin_width,
+        per_bin=args.per_bin,
+        scan_cap=args.scan_cap,
+    )
+
+    states: list[PuzzleState] = []
+    skipped = 0
+    for item in items:
+        state = build_puzzle_state(item, stoi, max_len)
+        if state is None:
+            skipped += 1
+            continue
+        states.append(state)
+    print(f"built {len(states)} solvable puzzles, skipped {skipped}", flush=True)
+
+    solve_puzzles(states, model, stoi, itos, device=device, batch_size=args.batch_size, max_len=max_len)
+
+    agg: dict[int, dict] = {}
+    for s in states:
+        d = agg.setdefault(s.bin, {"n": 0, "first": 0, "full": 0})
+        d["n"] += 1
+        d["first"] += int(bool(s.first_correct))
+        d["full"] += int(bool(s.solved))
+
+    by_bin = []
+    for b in sorted(agg):
+        d = agg[b]
+        by_bin.append({
+            "rating_lo": b,
+            "rating_hi": b + args.bin_width,
+            "n": d["n"],
+            "first_move_acc": d["first"] / d["n"],
+            "full_solve_acc": d["full"] / d["n"],
+        })
+
+    n = len(states)
+    summary = {
+        "type": "puzzles_summary",
+        "schema_version": SCHEMA_VERSION,
+        "model": args.model,
+        "device": device,
+        "puzzles_scored": n,
+        "puzzles_skipped": skipped,
+        "games_scanned": scanned,
+        "first_move_acc": sum(s.first_correct for s in states) / n if n else None,
+        "full_solve_acc": sum(s.solved for s in states) / n if n else None,
+        "bin_width": args.bin_width,
+        "by_bin": by_bin,
+    }
+
+    records = [run_record("puzzles", args, {"device": device}), summary]
+    if args.write_positions:
+        records.extend({
+            "type": "puzzle_position",
+            "schema_version": SCHEMA_VERSION,
+            "puzzle_id": s.puzzle_id,
+            "game_id": s.game_id,
+            "rating": s.rating,
+            "depth": len(s.sol) // 2,
+            "first_move_correct": s.first_correct,
+            "full_solved": s.solved,
+        } for s in states)
+    write_jsonl(args.output, records)
+
+    plot_path = args.plot or str(Path(args.output).with_suffix(".png"))
+    if maybe_plot_puzzle_curve(by_bin, plot_path):
+        print(f"wrote plot {plot_path}")
+    else:
+        print("matplotlib unavailable; skipped plot")
+
+    print_summary_record(summary)
+    print(f"wrote {args.output}")
+
+
 def command_summarize(args: argparse.Namespace) -> None:
     summaries = []
     games = []
@@ -1615,6 +1915,19 @@ def build_parser() -> argparse.ArgumentParser:
     games.add_argument("--legal-mask", action=argparse.BooleanOptionalAction, default=True)
     games.add_argument("--kv-cache", action="store_true", help="Use batched KV-cache decoding for h2h games")
     games.set_defaults(func=command_games)
+
+    puzzles = sub.add_parser("puzzles", help="Puzzle-solve accuracy binned by puzzle rating")
+    add_common_model_args(puzzles)
+    puzzles.add_argument("--ndjson", default="data/puzzle_games_ndjson.txt")
+    puzzles.add_argument("--metadata", default="data/puzzle_metadata.txt")
+    puzzles.add_argument("--rating-min", type=int, default=600)
+    puzzles.add_argument("--rating-max", type=int, default=2800)
+    puzzles.add_argument("--bin-width", type=int, default=100)
+    puzzles.add_argument("--per-bin", type=int, default=400)
+    puzzles.add_argument("--scan-cap", type=int, default=0, help="max ndjson lines to scan (0 = no cap)")
+    puzzles.add_argument("--write-positions", action="store_true")
+    puzzles.add_argument("--plot", default="", help="PNG path (defaults to output with .png)")
+    puzzles.set_defaults(func=command_puzzles)
 
     summarize = sub.add_parser("summarize", help="Summarize benchmark JSONL artifacts")
     summarize.add_argument("paths", nargs="+")
