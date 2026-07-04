@@ -6,10 +6,6 @@ __pycache__/
 .env
 
 CLAUDE.md
-ARCHITECTURE.md
-TRAINING_EXPERIMENT_LOG.md
-README_LAYOUT.md
-knowledge/
 
 data/
 puzzles/
