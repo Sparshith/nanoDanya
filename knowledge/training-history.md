@@ -23,7 +23,7 @@ experiments/. What this file preserves is the recipes and dataset facts.
 **Baseline (plain/games-500k)**: L12/H6/E768, AdamW lr 1e-4, batch 32, 50k iters,
 plain CE. Early result 67W/3L/30D vs SF500.
 
-**plain/puzzles-500k control**: built by `data_prep/build_weighted_data.py`,
+**plain/puzzles-500k control**: built by `build_weighted_data.py` (deleted 2026-07-04; git history),
 trained with `UNIFORM_WEIGHTS=1`, batch 64, early stopping on uniform val loss
 (patience 20, min steps 3000, min delta 0.001; best hit at step 9300). Dataset:
 500k games, 40.8M tokens (36.8M train / 4.1M val).
