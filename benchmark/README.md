@@ -147,7 +147,7 @@ Modal H2H benchmark:
 
 ```bash
 modal run modal_benchmark.py \
-  --model-a plain/games-3m \
+  --model-a plain/games-5m \
   --model-b plain/puzzles-5m \
   --games 50 \
   --batch-size 64 \

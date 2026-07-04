@@ -794,7 +794,7 @@ def _print_combined_summary(model_a: str, model_b: str, summaries: list[dict], w
 def main(
     mode: str = "h2h",
     model: str = "plain/games-5m",
-    model_a: str = "plain/games-3m",
+    model_a: str = "plain/games-5m",
     model_b: str = "plain/puzzles-5m",
     data_dir: str = "/data/datasets/games/5m",
     split: str = "val",

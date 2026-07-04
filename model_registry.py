@@ -75,17 +75,6 @@ MODEL_REGISTRY = (
         notes="Older L8 normal-game checkpoint, historically named chess_min.pt.",
     ),
     ModelSpec(
-        aliases=("plain/games-3m", "plain/games-3m/l12"),
-        path="checkpoints/plain/games-3m/l12.pt",
-        family="plain",
-        data_source="games",
-        scale="3m",
-        arch="L12_H6_E768",
-        dataset="datasets/games/3m",
-        status="ready",
-        notes="Normal-game 3M scale run.",
-    ),
-    ModelSpec(
         aliases=("plain/games-5m", "plain/games-5m/l12"),
         path="checkpoints/plain/games-5m/l12_best.pt",
         family="plain",
