@@ -16,11 +16,19 @@ from nanochat.gpt import GPT, GPTConfig
 
 Do not use `sys.path` hacks to import nanochat.
 
-## Data
+## Data & Models
 
-Main dataset: `data/puzzle_games_ndjson.txt` (3.2M Lichess games with per-move Stockfish evals). Puzzle metadata mapping game IDs to puzzle positions: `data/puzzle_metadata.txt`.
+All datasets, checkpoints, training, inference, and benchmarking live on the Modal volume `nanodanya-data`. Do not download data or checkpoints locally; run experiments on Modal (`modal_train.py`, `modal_benchmark.py`).
 
-Other files in `data/` (raw/, processed/, puzzle_weighted/, eval/, etc.) are older/smaller datasets kept for reference.
+Volume layout: `puzzles_raw/` (main dataset: `puzzle_games_ndjson.txt`, 3.2M Lichess games with per-move Stockfish evals, plus `puzzle_metadata.txt` mapping game IDs to puzzle positions), `datasets/` (prepared train/val bins), `checkpoints/` (plain, weighted, eval-aware), `archive/` (source shards, probes). See `README_LAYOUT.md` on the volume.
+
+Local `data/` holds only small working files; it is gitignored and not the source of truth.
+
+## Knowledge
+
+`knowledge/` is the project research memory: `STATE.md` (current story, champion model, open questions), `log.md` (append-only dated entries), `experiments/` (one file per significant run or benchmark). For questions about project state or past results, read `STATE.md` first.
+
+After a significant training run, benchmark, or conclusion change, update it as part of the work: append a `log.md` entry, add an `experiments/` file if the run warrants one, and keep `STATE.md` current. Keep it flat; do not add new directories, templates, or index files.
 
 ## Modal Training
 
@@ -39,8 +47,8 @@ uv run modal run modal_train.py
 # weighted puzzle training
 uv run modal run modal_train.py --datasets puzzle_weighted --script training/train_weighted.py
 
-# multiple datasets (comma-separated)
-uv run modal run modal_train.py --datasets eval,puzzle_weighted --script training/train_eval.py
+# multitask training on the eval dataset
+uv run modal run modal_train.py --datasets eval --script training/train_from_scratch.py
 ```
 
 `--datasets` is a comma-separated list of subdirectory names under `data/` (and matching volume paths). `--script` is the training script path relative to project root. `--gpu` selects the GPU type (default A100, use A10G for cheaper runs).

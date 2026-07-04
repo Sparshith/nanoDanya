@@ -20,7 +20,7 @@ uv run python benchmark/run.py legality \
   --model plain/puzzles-5m \
   --max-positions 4096 \
   --batch-size 128 \
-  --output benchmark/legality_plain_puzzles_5m.jsonl
+  --output benchmark/results/legality_plain_puzzles_5m.jsonl
 ```
 
 This reports:
@@ -55,7 +55,7 @@ uv run python benchmark/run.py api-legality \
   --data-dir data/actual_5m \
   --split val \
   --max-positions 100 \
-  --output benchmark/api_legality_smoke.jsonl
+  --output benchmark/results/api_legality_smoke.jsonl
 ```
 
 Start with 100 positions, then run the full 4096 positions once the prompt and
@@ -78,7 +78,7 @@ uv run python benchmark/run.py termination \
   --model plain/puzzles-5m \
   --max-positions 4096 \
   --batch-size 128 \
-  --output benchmark/termination_plain_puzzles_5m.jsonl
+  --output benchmark/results/termination_plain_puzzles_5m.jsonl
 ```
 
 This reports whether `<eos>` is too attractive on non-terminal positions:
@@ -94,7 +94,7 @@ uv run python benchmark/run.py move-quality \
   --model plain/puzzles-5m \
   --max-positions 512 \
   --stockfish-depth 4 \
-  --output benchmark/move_quality_plain_puzzles_5m.jsonl
+  --output benchmark/results/move_quality_plain_puzzles_5m.jsonl
 ```
 
 This asks the model for the best legal move on validation positions and scores
@@ -106,7 +106,7 @@ Held-out loss by ply:
 uv run python benchmark/run.py loss-by-ply \
   --models plain/games-500k plain/puzzles-5m \
   --max-games 4000 \
-  --output benchmark/loss_by_ply_models.jsonl
+  --output benchmark/results/loss_by_ply_models.jsonl
 ```
 
 This buckets next-token validation loss by game ply, which is useful for seeing
@@ -122,7 +122,7 @@ uv run python benchmark/run.py games \
   --stockfish-depth 1 \
   --games 50 \
   --batch-size 16 \
-  --output benchmark/games_plain_puzzles_5m_sf500.jsonl
+  --output benchmark/results/games_plain_puzzles_5m_sf500.jsonl
 ```
 
 Head-to-head:
@@ -134,7 +134,7 @@ uv run python benchmark/run.py games \
   --opponent-model plain/games-500k \
   --games 50 \
   --batch-size 16 \
-  --output benchmark/games_plain_puzzles_5m_vs_games_500k.jsonl
+  --output benchmark/results/games_plain_puzzles_5m_vs_games_500k.jsonl
 ```
 
 Summarize artifacts:
@@ -175,7 +175,7 @@ modal run modal_benchmark.py \
   --batch-size 64 \
   --shards 4 \
   --seed 5000 \
-  --output benchmark/sf500_plain_puzzles_5m_200.jsonl
+  --output benchmark/results/sf500_plain_puzzles_5m_200.jsonl
 ```
 
 Run the same command with `--stockfish-elo 1000` or `--stockfish-elo 1500` and
@@ -214,7 +214,7 @@ modal run modal_benchmark.py \
   --batch-size 64 \
   --shards 4 \
   --seed 5000 \
-  --output benchmark/h2h_plain_games_5m_vs_puzzles_5m_200.jsonl
+  --output benchmark/results/h2h_plain_games_5m_vs_puzzles_5m_200.jsonl
 ```
 
 ## Interpretation
