@@ -310,53 +310,6 @@ def _run_move_quality(
     return output.read_text()
 
 
-def _run_king_safety_legality(
-    model: str,
-    hard_data_dir: str = "/data/king_safety_sft",
-    split: str = "val",
-    max_positions: int = 4096,
-    batch_size: int = 128,
-    device: str = "cuda",
-    top_illegal: int = 20,
-    write_failures: int = 0,
-):
-    import os
-    import subprocess
-    from pathlib import Path
-
-    project_root = Path("/root/project")
-    output = Path("/tmp/king_safety_legality.jsonl")
-    env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
-    env["PYTHONPATH"] = f"{project_root}:{project_root / 'nanochat'}"
-
-    cmd = [
-        "python",
-        "benchmark/king_safety_legality.py",
-        "--model",
-        model,
-        "--hard-data-dir",
-        hard_data_dir,
-        "--split",
-        split,
-        "--max-positions",
-        str(max_positions),
-        "--batch-size",
-        str(batch_size),
-        "--device",
-        device,
-        "--top-illegal",
-        str(top_illegal),
-        "--write-failures",
-        str(write_failures),
-        "--output",
-        str(output),
-    ]
-
-    subprocess.run(cmd, check=True, cwd=project_root, env=env)
-    return output.read_text()
-
-
 def _inspect_legality_failures(
     model: str,
     data_dir: str = "/data/actual_5m",
@@ -747,34 +700,6 @@ def benchmark_move_quality(
     timeout=60 * 30,
     volumes={"/data": volume},
 )
-def benchmark_king_safety_legality(
-    model: str = "plain/games-5m",
-    hard_data_dir: str = "/data/king_safety_sft",
-    split: str = "val",
-    max_positions: int = 4096,
-    batch_size: int = 128,
-    device: str = "cuda",
-    top_illegal: int = 20,
-    write_failures: int = 0,
-):
-    return _run_king_safety_legality(
-        model=model,
-        hard_data_dir=hard_data_dir,
-        split=split,
-        max_positions=max_positions,
-        batch_size=batch_size,
-        device=device,
-        top_illegal=top_illegal,
-        write_failures=write_failures,
-    )
-
-
-@app.function(
-    image=image,
-    gpu="A100",
-    timeout=60 * 30,
-    volumes={"/data": volume},
-)
 def inspect_legality_failures(
     model: str = "plain/games-5m",
     data_dir: str = "/data/actual_5m",
@@ -872,7 +797,6 @@ def main(
     model_a: str = "plain/games-3m",
     model_b: str = "plain/puzzles-5m",
     data_dir: str = "/data/actual_5m",
-    hard_data_dir: str = "/data/king_safety_sft",
     split: str = "val",
     max_positions: int = 4096,
     max_ply: int = 140,
@@ -976,27 +900,6 @@ def main(
         if not output:
             stamp = time.strftime("%Y%m%d_%H%M%S")
             output = f"benchmark/results/modal_move_quality_{stamp}.jsonl"
-        out_path = Path(output)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(text)
-        print(text)
-        print(f"wrote {out_path}")
-        return
-
-    if mode == "king-safety-legality":
-        text = benchmark_king_safety_legality.remote(
-            model=model,
-            hard_data_dir=hard_data_dir,
-            split=split,
-            max_positions=max_positions,
-            batch_size=batch_size,
-            device="cuda",
-            top_illegal=top_illegal,
-            write_failures=write_failures,
-        )
-        if not output:
-            stamp = time.strftime("%Y%m%d_%H%M%S")
-            output = f"benchmark/results/modal_king_safety_legality_{stamp}.jsonl"
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(text)
