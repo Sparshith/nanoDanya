@@ -64,17 +64,6 @@ MODEL_REGISTRY = (
         notes="Main normal-game baseline. The unsuffixed alias resolves to the L12 architecture.",
     ),
     ModelSpec(
-        aliases=("plain/games-500k/l8",),
-        path="checkpoints/plain/games-500k/l8.pt",
-        family="plain",
-        data_source="games",
-        scale="500k",
-        arch="L8_H8_E512",
-        dataset="datasets/games/500k",
-        status="ready",
-        notes="Older L8 normal-game checkpoint, historically named chess_min.pt.",
-    ),
-    ModelSpec(
         aliases=("plain/games-5m", "plain/games-5m/l12"),
         path="checkpoints/plain/games-5m/l12_best.pt",
         family="plain",
@@ -128,17 +117,6 @@ MODEL_REGISTRY = (
         dataset="datasets/puzzles/500k",
         status="ready",
         notes="Rebuilt 500k puzzle slice. Replaces the old arbitrary 500k puzzle checkpoint.",
-    ),
-    ModelSpec(
-        aliases=("weighted/puzzles-5m", "weighted/puzzles-5m/l12"),
-        path="checkpoints/weighted/puzzles-5m/l12.pt",
-        family="weighted",
-        data_source="puzzles",
-        scale="5m",
-        arch="L12_H6_E768",
-        dataset="datasets/puzzles/5m",
-        status="ready",
-        notes="Weighted objective on the full puzzle-derived corpus.",
     ),
 )
 
@@ -210,7 +188,7 @@ def resolve_model_ref(ref: str | Path) -> tuple[str, ModelSpec | None]:
 def model_ref_help() -> str:
     return (
         "Model reference can be a registry alias "
-        "(e.g. plain/games-500k, plain/puzzles-5m, weighted/puzzles-5m), "
+        "(e.g. plain/games-500k, plain/puzzles-5m, plain/games-15m), "
         "a filename, or a filesystem path."
     )
 

@@ -8,13 +8,6 @@ CONFIG_KEYS = ("sequence_len", "vocab_size", "n_layer", "n_head", "n_kv_head", "
 SOFTCAP = 15
 
 
-def env_flag(name, default=False):
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def get_device():
     device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
     if device.type == "cuda":
