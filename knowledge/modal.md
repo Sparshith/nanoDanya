@@ -75,7 +75,7 @@ Lichess monthly dump ──(RapidCanvas job: Elo>=2000, >=30 plies,
 Lichess puzzle CSV + game-export API
        └─(data_prep/download_games.py)──> puzzles_raw/{puzzle_games_ndjson.txt,
                                                        puzzle_metadata.txt}
-              ├─(data_prep/build_weighted_data.py)──> datasets/puzzles/*
+              ├─(build_weighted_data.py, deleted; git history)──> datasets/puzzles/*
               └─(data_prep/prepare_eval_data.py)───> datasets/eval/base
 ```
 
