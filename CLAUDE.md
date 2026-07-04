@@ -41,16 +41,15 @@ uv run modal run modal_train.py --datasets <dataset_names> --script <training_sc
 Examples:
 
 ```bash
-# default (processed dataset, training/train.py)
-uv run modal run modal_train.py
+# plain training on the 5m games dataset
+uv run modal run modal_train.py --datasets datasets/games/5m --script training/train.py \
+  --env-overrides "DATASET_DIR=datasets/games/5m,CKPT_DIR=/data/checkpoints/plain/games-5m"
 
 # weighted puzzle training
-uv run modal run modal_train.py --datasets puzzle_weighted --script training/train_weighted.py
-
-# multitask training on the eval dataset
-uv run modal run modal_train.py --datasets eval --script training/train_from_scratch.py
+uv run modal run modal_train.py --datasets datasets/puzzles/5m --script training/train_weighted.py \
+  --env-overrides "DATASET_DIR=datasets/puzzles/5m,CKPT_DIR=/data/checkpoints/weighted/puzzles-5m"
 ```
 
-`--datasets` is a comma-separated list of subdirectory names under `data/` (and matching volume paths). `--script` is the training script path relative to project root. `--gpu` selects the GPU type (default A100, use A10G for cheaper runs).
+`--datasets` is a comma-separated list of volume paths (symlinked into `data/`; pass the same path as `DATASET_DIR`). `--script` is the training script path relative to project root. GPU type is set via the `MODAL_GPU` env var (default A100, use A10G for cheaper runs); the `--gpu` flag is a no-op because the GPU is fixed at import time.
 
 Do not create separate modal_train files for different training runs. Always use the same `modal_train.py` with different arguments.
