@@ -5,8 +5,8 @@ from chess_token_utils import resolve_token_id
 
 app = modal.App("nanodanya-chess")
 
-SERVE_MODEL_REF = "plain/puzzles-5m"
-SERVE_MODEL_PATH = "/data/models/chess_puzzle_plain_L12_H6_E768.pt"
+SERVE_MODEL_REF = "plain/games-15m"
+SERVE_MODEL_PATH = "/data/checkpoints/plain/games-15m/l16_best.pt"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")

@@ -204,7 +204,7 @@ def _run_batched_stockfish(
 
 def _run_legality(
     model: str,
-    data_dir: str = "/data/actual_5m",
+    data_dir: str = "/data/datasets/games/5m",
     split: str = "val",
     max_positions: int = 4096,
     batch_size: int = 128,
@@ -312,7 +312,7 @@ def _run_move_quality(
 
 def _inspect_legality_failures(
     model: str,
-    data_dir: str = "/data/actual_5m",
+    data_dir: str = "/data/datasets/games/5m",
     split: str = "val",
     phase: str = "opening",
     max_positions: int = 4096,
@@ -521,7 +521,7 @@ def _run_puzzles(
     volumes={"/data": volume},
 )
 def benchmark_puzzles(
-    model: str = "/data/actual_15m/chess_actual_15m_uniform_L16_H8_E1024_best.pt",
+    model: str = "/data/checkpoints/plain/games-15m/l16_best.pt",
     ndjson: str = "/data/puzzles_raw/puzzle_games_ndjson.txt",
     metadata: str = "/data/puzzles_raw/puzzle_metadata.txt",
     rating_min: int = 600,
@@ -641,7 +641,7 @@ def benchmark_stockfish_shard(spec: dict):
 )
 def benchmark_legality(
     model: str = "plain/games-5m",
-    data_dir: str = "/data/actual_5m",
+    data_dir: str = "/data/datasets/games/5m",
     split: str = "val",
     max_positions: int = 4096,
     batch_size: int = 128,
@@ -702,7 +702,7 @@ def benchmark_move_quality(
 )
 def inspect_legality_failures(
     model: str = "plain/games-5m",
-    data_dir: str = "/data/actual_5m",
+    data_dir: str = "/data/datasets/games/5m",
     split: str = "val",
     phase: str = "opening",
     max_positions: int = 4096,
@@ -796,7 +796,7 @@ def main(
     model: str = "plain/games-5m",
     model_a: str = "plain/games-3m",
     model_b: str = "plain/puzzles-5m",
-    data_dir: str = "/data/actual_5m",
+    data_dir: str = "/data/datasets/games/5m",
     split: str = "val",
     max_positions: int = 4096,
     max_ply: int = 140,
@@ -830,7 +830,7 @@ def main(
     from pathlib import Path
 
     if mode == "puzzles":
-        puzzle_model = model if model != "plain/games-5m" else "/data/actual_15m/chess_actual_15m_uniform_L16_H8_E1024_best.pt"
+        puzzle_model = model if model != "plain/games-5m" else "/data/checkpoints/plain/games-15m/l16_best.pt"
         result = benchmark_puzzles.remote(
             model=puzzle_model,
             rating_min=rating_min,
@@ -886,7 +886,7 @@ def main(
         return
 
     if mode == "move-quality":
-        mq_data_dir = "/data/datasets/eval/base" if data_dir == "/data/actual_5m" else data_dir
+        mq_data_dir = "/data/datasets/eval/base" if data_dir == "/data/datasets/games/5m" else data_dir
         text = benchmark_move_quality.remote(
             model=model,
             data_dir=mq_data_dir,
