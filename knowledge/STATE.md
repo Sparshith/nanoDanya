@@ -26,7 +26,9 @@ Scale under plain CE is the lever; data source and architecture are second-order
   The H2H matrix, Stockfish ladder, and blog numbers are from the L12: ~68-70% vs
   both 5M models, and 97% / 78.25% / 42.5% vs sf500/sf1000/sf1500. Architecture is a
   small effect on top: the L16 beats the L12 only 54.45% over 1000 games. The lichess
-  bot serves the champion (redeployed 2026-07-04; `inference/serve.py`).
+  bot serves the champion (redeployed 2026-07-04; `inference/serve.py`) and now
+  matchmakes: rated rapid 10+0 challenges to online bots, capped at 5 games/day with
+  a 2h gap (`lichess_bot/app.py`); bullet/blitz declined (T4 cold starts would flag).
 - Raw legality scales the same way: 3.9% real illegal (500k) to 0.44% (5M) to 0.24%
   (15M) ([raw legality](experiments/2026-05-raw-legality-by-scale.md)). The 15M model
   is at 99.71% raw-legal, better than every frontier API model tested on the same
