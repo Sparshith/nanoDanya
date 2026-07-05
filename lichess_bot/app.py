@@ -16,6 +16,14 @@ NANODANYA_API_URL = "https://sparshithsampath--nanodanya-chess-serve.modal.run/m
 BOT_TIMEOUT_SECONDS = 24 * 60 * 60
 RUN_SECONDS = int(23.5 * 60 * 60)
 
+MAX_GAMES_PER_DAY = 5
+MIN_SECONDS_BETWEEN_GAMES = 2 * 60 * 60
+MATCHMAKING_TICK_SECONDS = 5 * 60
+CHALLENGE_CLOCK_LIMIT = 600
+CHALLENGE_CLOCK_INCREMENT = 0
+OPPONENT_RATING_RANGE = (1000, 2200)
+ALLOWED_SPEEDS = {"rapid", "classical", "correspondence"}
+
 
 @app.function(
     image=image,
@@ -29,6 +37,7 @@ RUN_SECONDS = int(23.5 * 60 * 60)
 def run_bot():
     import os
     import json
+    import random
     import urllib.request
     import threading
     import time
@@ -60,7 +69,64 @@ def run_bot():
             self.client = berserk.Client(session)
             self.username = self.client.account.get()["username"]
             self.active_games = set()
+            self.games_today = 0
+            self.games_today_date = time.strftime("%Y-%m-%d", time.gmtime())
+            self.last_game_start = 0.0
+            self.pending_challenge_id = None
             print(f"Logged in as: {self.username}")
+
+        def _count_game_start(self):
+            today = time.strftime("%Y-%m-%d", time.gmtime())
+            if today != self.games_today_date:
+                self.games_today_date = today
+                self.games_today = 0
+            self.games_today += 1
+            self.last_game_start = time.time()
+
+        def _at_daily_cap(self) -> bool:
+            today = time.strftime("%Y-%m-%d", time.gmtime())
+            if today != self.games_today_date:
+                return False
+            return self.games_today >= MAX_GAMES_PER_DAY
+
+        def matchmake(self):
+            if self.active_games or self._at_daily_cap():
+                return
+            if time.time() - self.last_game_start < MIN_SECONDS_BETWEEN_GAMES:
+                return
+
+            bots = list(self.client.bots.get_online_bots(limit=50))
+            lo, hi = OPPONENT_RATING_RANGE
+            candidates = [
+                b for b in bots
+                if b["username"].lower() != self.username.lower()
+                and lo <= b.get("perfs", {}).get("rapid", {}).get("rating", 0) <= hi
+            ]
+            if not candidates:
+                candidates = [b for b in bots if b["username"].lower() != self.username.lower()]
+            if not candidates:
+                print("Matchmaking: no online bots found")
+                return
+
+            if self.pending_challenge_id:
+                try:
+                    self.client.challenges.cancel(self.pending_challenge_id)
+                except Exception:
+                    pass
+                self.pending_challenge_id = None
+
+            opponent = random.choice(candidates)["username"]
+            print(f"Matchmaking: challenging {opponent}")
+            try:
+                challenge = self.client.challenges.create(
+                    opponent,
+                    rated=True,
+                    clock_limit=CHALLENGE_CLOCK_LIMIT,
+                    clock_increment=CHALLENGE_CLOCK_INCREMENT,
+                )
+                self.pending_challenge_id = (challenge.get("challenge") or challenge).get("id")
+            except Exception as e:
+                print(f"Matchmaking: challenge to {opponent} failed: {e}")
 
         def handle_game(self, game_id: str):
             print(f"Starting game: {game_id}")
@@ -141,10 +207,24 @@ def run_bot():
             challenge_id = challenge["id"]
             challenger = challenge["challenger"]["name"]
             variant = challenge["variant"]["key"]
+            speed = challenge.get("speed")
+
+            if challenger.lower() == self.username.lower():
+                return
 
             if variant != "standard":
                 print(f"Declining {challenger}'s challenge: unsupported variant {variant}")
                 self.client.bots.decline_challenge(challenge_id, reason="standard")
+                return
+
+            if speed not in ALLOWED_SPEEDS:
+                print(f"Declining {challenger}'s challenge: too fast ({speed})")
+                self.client.bots.decline_challenge(challenge_id, reason="tooFast")
+                return
+
+            if self._at_daily_cap():
+                print(f"Declining {challenger}'s challenge: daily game cap reached")
+                self.client.bots.decline_challenge(challenge_id, reason="later")
                 return
 
             print(f"Accepting challenge from {challenger}")
@@ -162,6 +242,8 @@ def run_bot():
                     if game_id in self.active_games:
                         continue
                     self.active_games.add(game_id)
+                    self._count_game_start()
+                    self.pending_challenge_id = None
                     thread = threading.Thread(target=self._safe_handle_game, args=(game_id,))
                     thread.daemon = True
                     thread.start()
@@ -181,13 +263,30 @@ def run_bot():
         while True:
             try:
                 bot.run()
+                print("Event stream closed, reconnecting in 5 seconds...")
+                time.sleep(5)
             except Exception as e:
                 print(f"Error: {e}")
-                print("Reconnecting in 5 seconds...")
-                time.sleep(5)
+                if "429" in str(e):
+                    print("Rate limited, backing off 65 seconds...")
+                    time.sleep(65)
+                else:
+                    print("Reconnecting in 5 seconds...")
+                    time.sleep(5)
+
+    def matchmaking():
+        while True:
+            time.sleep(MATCHMAKING_TICK_SECONDS)
+            try:
+                bot.matchmake()
+            except Exception as e:
+                print(f"Matchmaking error: {e}")
 
     listener = threading.Thread(target=listen, daemon=True)
     listener.start()
+
+    matchmaker = threading.Thread(target=matchmaking, daemon=True)
+    matchmaker.start()
 
     deadline = time.time() + RUN_SECONDS
     while time.time() < deadline:

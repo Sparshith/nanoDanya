@@ -132,3 +132,32 @@ eval-as-tokens idea into STATE.md open questions. `rc_extract_actual_games.py`
 lives on RapidCanvas, not here; its filters are recorded in the modal.md lineage
 section. Note: the extracted game shards went away with `archive/`, so rebuilding
 a games dataset differently means re-extracting from the public Lichess dumps.
+
+## 2026-07-04 lichess bot matchmaking
+
+The bot had played 4 games ever, all vs spar93, none in 18 days. Added capped
+matchmaking to `lichess_bot/app.py`: when idle and under a 5 games/day cap (2h min
+gap between games), it challenges a random online bot (rapid rating 1000-2200) to a
+rated rapid 10+0 game; one game at a time, stale outgoing challenges cancelled.
+Incoming bullet/blitz now declined (Modal T4 cold starts would lose on time), and
+incoming challenges beyond the cap declined with "later". Estimated cost ~$0.15 per
+rapid game, ~$22/month at the cap, on top of ~$6/month for the always-on listener.
+Deployed; had to stop duplicate listener containers, since concurrent listeners
+fight over the single per-token Lichess event stream.
+
+## 2026-07-04 first public matchmade game, won
+
+After fixing a self-challenge echo (our outgoing challenge comes back on the event
+stream; the bot tried to accept it and crashed the loop) and adding 65s backoff on
+Lichess 429s, the bot's first matchmaking tick challenged uSunfish-l1 (1203 rapid)
+and won as black by checkmate: https://lichess.org/7PVg5aou (rated rapid 10+0).
+Champion model's first public game. Daily counter at 1/5; next challenge after the
+2h gap.
+
+## 2026-07-05 first day of public matchmaking: 6-4, ~1725 rapid
+
+Ten rated rapid games in the first ~24h, exactly at the 5/day cap with 2h gaps; no
+timeout losses (every game ended in mate), so T4 cold starts are a non-issue at 10+0.
+Notable: 1-1 vs maia9 (~1760) and a win vs maia5, but 0-2 vs croco_little_bot (1333)
+while beating stronger bots, likely a stylistic weakness worth a game-record look.
+Rating 1725 provisional after 10 games, consistent with the sf1500 42.5% benchmark.
