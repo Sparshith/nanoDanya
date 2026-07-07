@@ -30,6 +30,10 @@ Local `data/` holds only small working files; it is gitignored and not the sourc
 
 After a significant training run, benchmark, or conclusion change, update it as part of the work: append a `log.md` entry, add an `experiments/` file if the run warrants one, and keep `STATE.md` current. Keep it flat; do not add new directories, templates, or index files.
 
+## Scratch
+
+One-off analysis and probe scripts go in `scratch/` (gitignored, but still shipped to Modal). Before a scratch script is done, file its numbers and conclusion in `knowledge/log.md`; the script itself is disposable. A script graduates to a tracked directory (`data_prep/`, `benchmark/`, ...) only when it gets rerun against different inputs.
+
 ## Modal Training
 
 Run training on Modal with:
