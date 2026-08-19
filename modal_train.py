@@ -12,13 +12,16 @@ ignore = modal.FilePatternMatcher.from_file(".modalignore")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ca-certificates", "curl")
+    .run_commands(
+        "curl -L --fail -o /usr/local/bin/fairy-stockfish "
+        "https://github.com/fairy-stockfish/Fairy-Stockfish/releases/latest/download/fairy-stockfish-largeboard_x86-64",
+        "chmod +x /usr/local/bin/fairy-stockfish",
+    )
     .pip_install(
         "numpy",
         "torch==2.5.1+cu124",
-        "tokenizers",
-        "tiktoken",
         "python-chess",
-        "pyarrow",
         extra_index_url="https://download.pytorch.org/whl/cu124",
     )
     .add_local_dir(".", "/root/project", ignore=ignore)
