@@ -1,6 +1,6 @@
 # nanoDanya State
 
-Last updated: 2026-07-04
+Last updated: 2026-08-10
 
 The project asks how much chess (legal continuation, tactics, termination) a pure
 next-token model internalizes from data and objectives. Runtime scaffolds (legality
@@ -29,6 +29,8 @@ Scale under plain CE is the lever; data source and architecture are second-order
   bot serves the champion (redeployed 2026-07-04; `inference/serve.py`) and now
   matchmakes: rated rapid 10+0 challenges to online bots, capped at 5 games/day with
   a 2h gap (`lichess_bot/app.py`); bullet/blitz declined (T4 cold starts would flag).
+  **Public rating settled at 1420 rapid** over 140 rated games (59W/57L/28D, rd 45,
+  as of 2026-07-26); the 1725 provisional from day one was inflation.
 - Raw legality scales the same way: 3.9% real illegal (500k) to 0.44% (5M) to 0.24%
   (15M) ([raw legality](experiments/2026-05-raw-legality-by-scale.md)). The 15M model
   is at 99.71% raw-legal, better than every frontier API model tested on the same
@@ -90,10 +92,24 @@ linearly readable from hidden states and improve with data
 - Middlegame tactics and conversions are now the real gap (blog framing: the
   problems left are chess problems, not legality problems). sf1500 score 42.5% is
   the number to move.
-- Tool-assisted / action-value direction (FEN-snapshot rebuild): flagged as the next
-  big phase after the puzzle-eval GO, not started.
-- Judge-without-selection uses for the eval head (blunder-check veto, resign/draw
-  decisions) are unexplored.
+- Tool-assisted / action-value direction (FEN-snapshot rebuild): superseded
+  2026-08-10 before starting; a play-time Stockfish toolcall is a harness under the
+  end-to-end rule. Replaced by GRPO on the model itself.
+- GRPO v0 (binary puzzle first-move reward, `training/train_grpo.py`) ran end to
+  end 2026-08-16: machinery validated, reward misspecified. It generalizes on its
+  objective (held-out puzzle first-move 54.9 -> 66.4%, full-solve 38.1 -> 47.9%)
+  but loses real strength (sf1500 53.25 -> 28.75%, H2H 35.5% vs its own init,
+  legality 0.20 -> 0.59%). Champion unchanged
+  ([GRPO v0](experiments/2026-08-16-grpo-puzzle-first-move-v0.md)). Next lever:
+  mixed positions with eval-delta reward, and mapping the kl_beta/early-stop
+  frontier. Fresh same-protocol baseline: the L16 champion is 53.25%/400 games vs
+  sf1500 (the blog's 42.5% is the L12 over 200 games, older protocol).
+- Runtime vetoes (blunder-check, stalemate-check) are REJECTED as a direction
+  (2026-07-06): the model must be end to end; no rule-based or judge-based harness
+  interventions beyond the existing legality mask. The conversion-cliff evidence
+  from public games instead motivates training-time fixes: joint policy+boxed-value
+  training, eval-as-tokens, or outcome-signal fine-tuning. Metrics to move:
+  blunder rate (move-quality cp-300) and stalemate-from-winning rate.
 - Eval-as-tokens is untried (from the Feb planning notes): inject discretized eval
   tokens into the move sequence (`<+0.5> e4 <-0.3> e5`) so the model predicts evals
   inline. Candidate objective for the eval-aware rewrite alongside the boxed head.
