@@ -48,14 +48,7 @@ MATE_SCORE = 100_000
 @dataclass
 class Position:
     board: chess.Board
-    prefix_ids: list[int]
-    ply: int
-    game_index: int
-
-
-@dataclass
-class PromptPosition:
-    board: chess.Board
+    prefix_ids: list[int] | None
     moves: list[str]
     ply: int
     game_index: int
@@ -220,28 +213,9 @@ def load_dotenv(path: Path = Path(".env")) -> None:
 
 
 def load_token_games(data_dir: Path, split: str, max_games: int) -> tuple[list[list[str]], dict]:
-    meta = pickle.loads((data_dir / "meta.pkl").read_bytes())
-    ids = np.fromfile(data_dir / f"{split}.bin", dtype=np.uint16)
-    bos_id = meta["stoi"]["<bos>"]
-    eos_id = meta["stoi"]["<eos>"]
-    games: list[list[str]] = []
-    current: list[str] = []
-
-    for raw_id in ids:
-        token_id = int(raw_id)
-        if token_id == bos_id:
-            current = ["<bos>"]
-            continue
-        if not current:
-            continue
-        current.append(token_for_id(meta["itos"], token_id))
-        if token_id == eos_id:
-            games.append(current)
-            current = []
-            if max_games > 0 and len(games) >= max_games:
-                break
-
-    return games, meta
+    games, meta = load_id_games(data_dir, split, max_games)
+    itos = meta["itos"]
+    return [[token_for_id(itos, token_id) for token_id in game] for game in games], meta
 
 
 def load_id_games(data_dir: Path, split: str, max_games: int) -> tuple[list[list[int]], dict]:
@@ -276,60 +250,14 @@ def collect_positions(
     max_games: int,
     max_positions: int,
     max_ply: int,
-    model_stoi: dict[str, int],
+    model_stoi: dict[str, int] | None = None,
 ) -> list[Position]:
     games, _ = load_token_games(data_dir, split, max_games)
     positions: list[Position] = []
-    bos_id = model_stoi["<bos>"]
 
     for game_index, game in enumerate(games):
         board = chess.Board()
-        prefix_ids = [bos_id]
-        ply = 0
-
-        for token in game[1:]:
-            if token == "<eos>":
-                break
-
-            target_id = resolve_token_id(model_stoi, token)
-            if target_id is None:
-                break
-
-            ply += 1
-            if max_ply <= 0 or ply <= max_ply:
-                positions.append(
-                    Position(
-                        board=board.copy(stack=False),
-                        prefix_ids=prefix_ids.copy(),
-                        ply=ply,
-                        game_index=game_index,
-                    )
-                )
-                if max_positions > 0 and len(positions) >= max_positions:
-                    return positions
-
-            try:
-                board.push_san(token)
-            except ValueError:
-                break
-            prefix_ids.append(target_id)
-
-    return positions
-
-
-def collect_prompt_positions(
-    *,
-    data_dir: Path,
-    split: str,
-    max_games: int,
-    max_positions: int,
-    max_ply: int,
-) -> list[PromptPosition]:
-    games, _ = load_token_games(data_dir, split, max_games)
-    positions: list[PromptPosition] = []
-
-    for game_index, game in enumerate(games):
-        board = chess.Board()
+        prefix_ids = [model_stoi["<bos>"]] if model_stoi is not None else None
         moves: list[str] = []
         ply = 0
 
@@ -337,11 +265,18 @@ def collect_prompt_positions(
             if token == "<eos>":
                 break
 
+            target_id = None
+            if model_stoi is not None:
+                target_id = resolve_token_id(model_stoi, token)
+                if target_id is None:
+                    break
+
             ply += 1
             if max_ply <= 0 or ply <= max_ply:
                 positions.append(
-                    PromptPosition(
+                    Position(
                         board=board.copy(stack=False),
+                        prefix_ids=prefix_ids.copy() if prefix_ids is not None else None,
                         moves=moves.copy(),
                         ply=ply,
                         game_index=game_index,
@@ -354,6 +289,8 @@ def collect_prompt_positions(
                 board.push_san(token)
             except ValueError:
                 break
+            if prefix_ids is not None:
+                prefix_ids.append(target_id)
             moves.append(token)
 
     return positions
@@ -430,7 +367,7 @@ def format_move_history(moves: list[str]) -> str:
     return " ".join(chunks)
 
 
-def api_legality_prompt(position: PromptPosition) -> list[dict[str, str]]:
+def api_legality_prompt(position: Position) -> list[dict[str, str]]:
     side = "White" if position.board.turn == chess.WHITE else "Black"
     return [
         {
@@ -613,7 +550,7 @@ def command_legality(args: argparse.Namespace) -> None:
 def evaluate_api_legality_position(
     *,
     model: str,
-    pos: PromptPosition,
+    pos: Position,
     api_key: str,
     args: argparse.Namespace,
 ) -> dict:
@@ -677,7 +614,7 @@ def command_api_legality(args: argparse.Namespace) -> None:
     if not api_key:
         raise SystemExit("Set OPENROUTER_API_KEY or pass --api-key")
 
-    positions = collect_prompt_positions(
+    positions = collect_positions(
         data_dir=Path(args.data_dir),
         split=args.split,
         max_games=args.max_games,
@@ -719,22 +656,21 @@ def command_api_legality(args: argparse.Namespace) -> None:
             ]
             completed = 0
 
-            for record in existing.values():
-                phase = record["phase"]
+            def tally(record: dict) -> None:
                 api_error = bool(record.get("api_error"))
                 parseable = bool(record["parseable"])
                 legal = bool(record["legal"])
-                parsed_move = record["parsed_move"]
-                raw_response = record["raw_response"]
-
                 overall.add(api_error=api_error, parseable=parseable, legal=legal)
-                by_phase[phase].add(api_error=api_error, parseable=parseable, legal=legal)
+                by_phase[record["phase"]].add(api_error=api_error, parseable=parseable, legal=legal)
                 if api_error:
                     top_unparseable["<api_error>"] += 1
                 elif not parseable:
-                    top_unparseable[raw_response[:120]] += 1
+                    top_unparseable[record["raw_response"][:120]] += 1
                 elif not legal:
-                    top_illegal[parsed_move] += 1
+                    top_illegal[record["parsed_move"]] += 1
+
+            for record in existing.values():
+                tally(record)
 
             if existing:
                 print(f"{model}: resuming from {len(existing)}/{len(positions)} existing positions")
@@ -753,22 +689,7 @@ def command_api_legality(args: argparse.Namespace) -> None:
 
                 for future in as_completed(futures):
                     record = future.result()
-                    phase = record["phase"]
-                    api_error = bool(record["api_error"])
-                    parseable = bool(record["parseable"])
-                    legal = bool(record["legal"])
-                    parsed_move = record["parsed_move"]
-                    raw_response = record["raw_response"]
-
-                    overall.add(api_error=api_error, parseable=parseable, legal=legal)
-                    by_phase[phase].add(api_error=api_error, parseable=parseable, legal=legal)
-
-                    if api_error:
-                        top_unparseable["<api_error>"] += 1
-                    elif not parseable:
-                        top_unparseable[raw_response[:120]] += 1
-                    elif not legal:
-                        top_illegal[parsed_move] += 1
+                    tally(record)
 
                     if args.write_positions:
                         f.write(json.dumps(record, sort_keys=True) + "\n")
@@ -1077,6 +998,15 @@ def game_record(state: GameState, args: argparse.Namespace) -> dict:
     }
 
 
+def write_game_outputs(args: argparse.Namespace, states: list[GameState], extra: dict) -> None:
+    records = [run_record("games", args, extra)]
+    records.extend(game_record(state, args) for state in states)
+    records.append(summarize_game_records(records[1:]))
+    write_jsonl(args.output, records)
+    print_summary_record(records[-1])
+    print(f"wrote {args.output}")
+
+
 @torch.inference_mode()
 def command_games(args: argparse.Namespace) -> None:
     device = resolve_device(args.device)
@@ -1214,21 +1144,10 @@ def command_games(args: argparse.Namespace) -> None:
         if engine is not None:
             engine.quit()
 
-    records = [
-        run_record(
-            "games",
-            args,
-            {
-                "device": device,
-                "stockfish_limit": str(limit) if limit is not None else None,
-            },
-        )
-    ]
-    records.extend(game_record(state, args) for state in states)
-    records.append(summarize_game_records(records[1:]))
-    write_jsonl(args.output, records)
-    print_summary_record(records[-1])
-    print(f"wrote {args.output}")
+    write_game_outputs(args, states, {
+        "device": device,
+        "stockfish_limit": str(limit) if limit is not None else None,
+    })
 
 
 def make_kv_cache(config, batch_size: int):
@@ -1331,22 +1250,11 @@ def command_h2h_games_kv(
         if not state.finished:
             finish_game(state, "max_plies")
 
-    records = [
-        run_record(
-            "games",
-            args,
-            {
-                "device": device,
-                "stockfish_limit": None,
-                "kv_cache": True,
-            },
-        )
-    ]
-    records.extend(game_record(state, args) for state in states)
-    records.append(summarize_game_records(records[1:]))
-    write_jsonl(args.output, records)
-    print_summary_record(records[-1])
-    print(f"wrote {args.output}")
+    write_game_outputs(args, states, {
+        "device": device,
+        "stockfish_limit": None,
+        "kv_cache": True,
+    })
 
 
 def apply_model_choice(
