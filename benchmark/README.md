@@ -154,14 +154,16 @@ modal run modal_benchmark.py \
   --shards 1
 ```
 
-`modal_benchmark.py` is only a remote wrapper around `benchmark/run.py games
---game-mode h2h`. It exists because the checkpoints and A100 runtime live on the
-Modal volume.
+`modal_benchmark.py` is a thin remote wrapper around `benchmark/run.py`. It
+exists because the checkpoints and A100 runtime live on the Modal volume.
+`--mode` selects the benchmark: `h2h` (default), `stockfish`, `legality`,
+`move-quality`, or `puzzles`. The game modes shard across containers with
+`--shards`.
 
-The Modal wrapper writes the aggregate summary and every game record to a local
-JSONL file under `benchmark/modal_h2h_*.jsonl` by default. Each `game` record
-contains the full SAN move list, color assignment, result, outcome, termination,
-and ply count.
+The Modal wrapper writes results to a local JSONL file under
+`benchmark/results/modal_<mode>_*.jsonl` by default. For game modes each `game`
+record contains the full SAN move list, color assignment, result, outcome,
+termination, and ply count.
 
 Modal Stockfish benchmark:
 
@@ -199,22 +201,15 @@ for model in plain/games-500k plain/puzzles-500k plain/games-5m plain/puzzles-5m
       --batch-size 64 \
       --shards 4 \
       --seed 5000 \
-      --output "benchmark/sf${elo}_${safe_model}_200.jsonl"
+      --output "benchmark/results/sf${elo}_${safe_model}_200.jsonl"
   done
 done
 ```
 
-For the `games-5m` training arc, use [scripts/actual_5m_runbook.md](/Users/sparshith/workspace/nanoDanya/scripts/actual_5m_runbook.md). The main benchmark is:
+Modal puzzle benchmark (defaults to the champion checkpoint):
 
 ```bash
-modal run modal_benchmark.py \
-  --model-a plain/games-5m \
-  --model-b plain/puzzles-5m \
-  --games 200 \
-  --batch-size 64 \
-  --shards 4 \
-  --seed 5000 \
-  --output benchmark/results/h2h_plain_games_5m_vs_puzzles_5m_200.jsonl
+modal run modal_benchmark.py --mode puzzles --per-bin 400
 ```
 
 ## Interpretation
@@ -231,10 +226,6 @@ rate as the primary strength metric.
 
 ## Artifact Policy
 
-Generated game logs and rendered reports are artifacts, not source:
-
-- `benchmark/*.jsonl`
-- `benchmark/*.html`
-
-Keep durable findings in `knowledge/wiki/evaluation/` as summarized markdown,
-not as raw run output.
+Generated game logs, plots, and reports are artifacts, not source. They live in
+`benchmark/results/` (gitignored). Keep durable findings in `knowledge/`
+(`log.md` and `experiments/`) as summarized markdown, not as raw run output.
