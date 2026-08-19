@@ -24,3 +24,4 @@ benchmark/*.jsonl
 benchmark/*.json
 benchmark/*.html
 probes/*.html
+plot/

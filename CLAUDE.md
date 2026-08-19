@@ -34,6 +34,15 @@ After a significant training run, benchmark, or conclusion change, update it as 
 
 One-off analysis and probe scripts go in `scratch/` (gitignored, but still shipped to Modal). Before a scratch script is done, file its numbers and conclusion in `knowledge/log.md`; the script itself is disposable. A script graduates to a tracked directory (`data_prep/`, `benchmark/`, ...) only when it gets rerun against different inputs.
 
+## Plots
+
+- Do not send plots or visualizations to external services. Keep all plots on the local disk.
+- Make each plot as one HTML file that contains all its resources.
+- Put each plot in its own subfolder in the `plot/` directory.
+- Give the subfolder a name that identifies the contents of the plot.
+- Put the plot data and the build script in the same subfolder.
+- The `plot/` directory is not part of the git repository, and it does not go to Modal.
+
 ## Modal Training
 
 Run training on Modal with:
