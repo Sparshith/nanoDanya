@@ -888,3 +888,11 @@ Both GRPO variants are recorded in `experiments/2026-08-16-*` and `2026-08-26-*`
 the code stays in git history before this date. `training/grpo.py` now holds only
 the reward-table and exact-loss helpers that `train_exact_policy.py` and
 `train_mate_threats.py` import. Unused paired-contrast helpers removed with it.
+
+## 2026-09-22 mate-threat scripts deleted
+
+`data_prep/prepare_mate_threats.py`, `training/train_mate_threats.py` and their test
+were never committed and are now removed. The two Sep 19 runs (coverage,
+oversampling) both ended with no established strength gain; results and the exact
+protocol are in `experiments/2026-09-19-mate-threat-*.md`. Dataset
+`own-games/mate-threats-20260919` and both checkpoints stay on the volume.
