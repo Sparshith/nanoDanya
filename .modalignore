@@ -8,6 +8,7 @@ experimentation/
 __pycache__/
 .git/
 .venv/
+.worktrees/
 .playwright-cli/
 .pytest_cache/
 .vscode/
@@ -23,5 +24,12 @@ blog.preview.css
 benchmark/*.jsonl
 benchmark/*.json
 benchmark/*.html
+benchmark/results/*_shards/
 probes/*.html
+browser/node_modules/
+browser/assets/
+browser/results/
+browser/play/dist/
+browser/play/.wrangler/
+.wrangler/
 plot/

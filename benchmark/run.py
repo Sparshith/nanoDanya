@@ -314,7 +314,7 @@ def last_logits_for_prefixes(
             last_idx.append(len(prefix) - 1)
         logits = model(x)
         for row, idx in enumerate(last_idx):
-            yield start + row, logits[row, idx, :].detach()
+            yield start + row, logits[row, idx, :].detach().clone()
 
 
 def raw_metrics_from_logits(
@@ -792,7 +792,7 @@ def command_move_quality(args: argparse.Namespace) -> None:
         max_ply=args.max_ply,
         model_stoi=stoi,
     )
-    engine = chess.engine.SimpleEngine.popen_uci(args.stockfish)
+    engine = chess.engine.SimpleEngine.popen_uci(args.stockfish, timeout=args.stockfish_timeout)
     limit = stockfish_limit(args)
 
     records = [run_record("move-quality", args, {"device": device, "stockfish_limit": str(limit)})]
@@ -1077,7 +1077,7 @@ def command_games(args: argparse.Namespace) -> None:
     engine = None
     limit = None
     if args.game_mode == "stockfish":
-        engine = chess.engine.SimpleEngine.popen_uci(args.stockfish)
+        engine = chess.engine.SimpleEngine.popen_uci(args.stockfish, timeout=args.stockfish_timeout)
         configure_stockfish_strength(engine, args.stockfish_elo)
         limit = stockfish_limit(args)
 
@@ -1749,6 +1749,7 @@ def add_position_args(parser: argparse.ArgumentParser) -> None:
 def add_stockfish_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--stockfish", default="/opt/homebrew/bin/fairy-stockfish")
     parser.add_argument("--stockfish-time", type=float, default=0.02)
+    parser.add_argument("--stockfish-timeout", type=float, default=10.0)
     parser.add_argument("--stockfish-depth", type=int, default=0)
     parser.add_argument("--stockfish-nodes", type=int, default=0)
 

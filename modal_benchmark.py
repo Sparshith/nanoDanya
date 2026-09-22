@@ -36,6 +36,9 @@ volume = modal.Volume.from_name("nanodanya-data")
 @app.function(
     image=image,
     gpu=GPU,
+    max_containers=int(os.environ.get("MODAL_MAX_CONTAINERS", "8")),
+    cpu=float(os.environ.get("MODAL_CPU", "1")),
+    retries=int(os.environ.get("MODAL_RETRIES", "0")),
     timeout=60 * 60 * 2,
     volumes={"/data": volume},
 )
@@ -70,6 +73,7 @@ def bench(subcommand: str, flags: dict):
 
     records = [json.loads(line) for line in output.read_text().splitlines()]
     return {
+        "request": {"subcommand": subcommand, "flags": flags},
         "records": records,
         "elapsed": time.time() - started,
         "png_b64": base64.b64encode(plot.read_bytes()).decode() if plot.exists() else None,
@@ -161,6 +165,7 @@ def main(
     stockfish_elo: int = 500,
     stockfish: str = "/usr/local/bin/fairy-stockfish",
     stockfish_time: float = 0.02,
+    stockfish_timeout: float = 10.0,
     stockfish_depth: int = 0,
     stockfish_nodes: int = 0,
     rating_min: int = 600,
@@ -170,6 +175,7 @@ def main(
     scan_cap: int = 0,
     write_positions: bool = False,
     output: str = "",
+    shard_output_dir: str = "",
 ):
     import base64
     import json
@@ -221,6 +227,9 @@ def main(
             "batch_size": batch_size or 64,
             "stockfish": stockfish,
             "stockfish_time": stockfish_time,
+            "stockfish_depth": stockfish_depth,
+            "stockfish_nodes": stockfish_nodes,
+            "write_positions": write_positions,
         })
         path = out_path("move_quality")
         write_records(path, result["records"])
@@ -275,6 +284,7 @@ def main(
             "stockfish_time": stockfish_time,
             "stockfish_depth": stockfish_depth,
             "stockfish_nodes": stockfish_nodes,
+            "stockfish_timeout": stockfish_timeout,
             "temperature": temperature,
             "batch_size": batch_size or 64,
             "max_plies": max_plies,
@@ -290,7 +300,16 @@ def main(
         ("games", base | {"games": count, "game_offset": offset, "seed": seed + offset})
         for offset, count in splits
     ]
-    results = list(bench.starmap(jobs))
+    if shard_output_dir:
+        from benchmark.game_shards import load_shards, save_shard
+        results, pending = load_shards(shard_output_dir, jobs)
+        print(f"Using {len(results)} saved shards; collecting {len(pending)} remaining shards")
+        for result in bench.starmap(pending, order_outputs=False):
+            save_shard(shard_output_dir, result)
+            results.append(result)
+            print(f"Saved {len(results)}/{len(jobs)} shards", flush=True)
+    else:
+        results = list(bench.starmap(jobs))
     wall_time = time.time() - started
 
     summary, game_records = _combine_games(label_a, label_b, results, wall_time)
