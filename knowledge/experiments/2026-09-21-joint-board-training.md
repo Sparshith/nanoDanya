@@ -6,6 +6,11 @@ against matched next-move-only continuation is inconclusive. The traced game's
 fatal `36...g5` remains the greedy choice. Keep this as an experimental candidate;
 the added chess-strength benefit of board loss is not yet established.
 
+Follow-up: the [4,000-game confirmation](2026-09-22-joint-board-confirmation.md)
+scores 50.5% joint versus control (95% interval 49.1–51.94%). The earlier lead
+was not reproduced; additional board supervision has not demonstrated a
+playing-strength advantage over matched next-move-only continuation.
+
 ## Protocol
 
 Both arms initialize from `all-pieces/final.pt`: the original champion transformer
