@@ -879,3 +879,12 @@ A fresh 15M FP32 control scored 76.75% at SF1000 versus INT8's 69.25% (200 games
 each), so preserved FP32 strength remains unproven. Native CPU tests, not browser
 GPU or public Elo measurements. The canonical benchmark runner now accepts ONNX
 policy exports. Details: experiments/2026-09-21-int8-browser-models.md.
+
+## 2026-09-22 grpo sampling code removed; exact policy is the RL line
+
+Deleted `training/train_grpo.py` (v0 puzzle first-move, v1 winprob reward),
+`data_prep/prepare_grpo_positions.py` and `data_prep/prepare_grpo_eval_positions.py`.
+Both GRPO variants are recorded in `experiments/2026-08-16-*` and `2026-08-26-*`;
+the code stays in git history before this date. `training/grpo.py` now holds only
+the reward-table and exact-loss helpers that `train_exact_policy.py` and
+`train_mate_threats.py` import. Unused paired-contrast helpers removed with it.

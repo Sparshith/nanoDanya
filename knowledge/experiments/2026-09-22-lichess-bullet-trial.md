@@ -12,3 +12,7 @@ Future deployments can use the new Dict `drain` flag to stop challenges, finish 
 
 Temperature benchmark dashboard: https://app.artifactbin.dev/a/OyGiWE
 This shows the original champion versus SF1500, not direct temperature-versus-temperature matches or live Lichess results.
+
+## Matchmaking paused
+
+2026-09-22T13:48:51+05:30: Set the existing Modal Dict `drain` flag to `True` after repeated generic HTTP 429 responses. Trial counters remain saved (rapid 78/100, bullet 28/100); automatic matchmaking stays paused until the flag is explicitly cleared. Before resuming, use a shared bot-game budget across time controls and increasing backoff after repeated rate limits. Official guidance: https://lichess.org/page/api-tips ; server bot-game cap: https://github.com/lichess-org/lila/blob/master/modules/bot/src/main/BotLimit.scala . The generic responses did not identify the triggering limit or reset time.

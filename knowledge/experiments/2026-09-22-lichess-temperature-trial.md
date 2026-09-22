@@ -1,6 +1,6 @@
 # Lichess temperature 0.2 trial
 
-Started 2026-09-22T11:21:31.460770+05:30. Status: running.
+Started 2026-09-22T11:21:31.460770+05:30. Status: matchmaking paused after repeated HTTP 429 responses.
 
 - Serving model: `grpo/own-games-exact-10k-20260918`, selected step 5,500. Only sampling temperature changes to 0.2.
 - Baseline: rapid rating 1412, RD 45, 572 rated rapid games.
@@ -15,3 +15,7 @@ Verification: 20 scheduling/game tests passed, including reservations near the t
 Live source of truth: Modal Dict `nanodanya-lichess-state`, key `budget`, field `trial`. It stores game IDs/status/winner, baseline, and (after completion) `finished_at` and `final_rapid`. Initial local snapshots are `benchmark/results/lichess_temperature02_trial_{start,status}.json`; these are not live counters.
 
 This tests the deployed fine-tune, whereas the offline temperature sweep tested the original champion. A before/after live rating change also reflects opponent mix and rating uncertainty.
+
+## Matchmaking paused
+
+2026-09-22T13:48:51+05:30: Set the existing Modal Dict `drain` flag to `True` after repeated generic HTTP 429 responses. Trial counters remain saved (rapid 78/100, bullet 28/100); automatic matchmaking stays paused until the flag is explicitly cleared. Before resuming, use a shared bot-game budget across time controls and increasing backoff after repeated rate limits. Official guidance: https://lichess.org/page/api-tips ; server bot-game cap: https://github.com/lichess-org/lila/blob/master/modules/bot/src/main/BotLimit.scala . The generic responses did not identify the triggering limit or reset time.
