@@ -11,3 +11,9 @@ data/
 benchmark/results/
 scratch/
 plot/
+
+.playwright-cli/
+.worktrees/
+.wrangler/
+output/
+node_modules/
