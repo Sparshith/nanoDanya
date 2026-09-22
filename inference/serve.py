@@ -5,8 +5,8 @@ from chess_token_utils import resolve_token_id
 
 app = modal.App("nanodanya-chess")
 
-SERVE_MODEL_REF = "plain/games-15m"
-SERVE_MODEL_PATH = "/data/checkpoints/plain/games-15m/l16_best.pt"
+SERVE_MODEL_REF = "grpo/own-games-exact-10k-20260918"
+SERVE_MODEL_PATH = "/data/checkpoints/grpo/own-games-exact-10k-20260918/best.pt"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -20,8 +20,11 @@ volume = modal.Volume.from_name("nanodanya-data")
 @app.cls(
     image=image,
     gpu="T4",
+    max_containers=1,
+    scaledown_window=300,
     volumes={"/data": volume},
 )
+@modal.concurrent(max_inputs=10)
 class ChessModel:
     @modal.enter()
     def load_model(self):
@@ -139,6 +142,7 @@ class ChessModel:
         self.stoi = ckpt["meta"]["tokenizer"]["stoi"]
         self.itos = ckpt["meta"]["tokenizer"]["itos"]
         self.config = config
+        print(f"Loaded {SERVE_MODEL_REF}, checkpoint step {ckpt.get('step')}")
 
     @modal.method()
     def get_move(self, moves: list[str], temperature: float = 1.0) -> str:
@@ -161,7 +165,8 @@ class ChessModel:
             token_ids = [self.stoi["<bos>"]]
 
         x = torch.tensor(token_ids, device="cuda")[None, :]
-        logits = self.model(x[:, -self.config.sequence_len:])
+        with torch.inference_mode():
+            logits = self.model(x[:, -self.config.sequence_len:])
 
         _, next_token = choose_move_from_logits(
             logits[0, -1, :],
@@ -177,7 +182,8 @@ class ChessModel:
         return next_token
 
 
-@app.function(image=image)
+@app.function(image=image, max_containers=1)
+@modal.concurrent(max_inputs=20)
 @modal.asgi_app()
 def serve():
     from fastapi import FastAPI, HTTPException
@@ -209,7 +215,7 @@ def serve():
                 temp_board.push(move)
 
         try:
-            next_move = model.get_move.remote(moves, request.temperature)
+            next_move = await model.get_move.remote.aio(moves, request.temperature)
             return MoveResponse(move=next_move, moves_played=moves + [next_move])
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))

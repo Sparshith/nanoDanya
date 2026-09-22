@@ -49,7 +49,9 @@ def parse_env_overrides(raw: str) -> dict[str, str]:
 
 @app.function(
     image=image,
-    gpu=GPU,
+    gpu=None if GPU.lower() == "none" else GPU,
+    cpu=float(os.environ.get("MODAL_CPU", "1")),
+    memory=int(os.environ.get("MODAL_MEMORY", "8192")),
     timeout=60 * 60 * 12,
     volumes={"/data": volume},
 )
@@ -81,15 +83,16 @@ def train(datasets: str, script: str, env_overrides: str = ""):
     env.update(parse_env_overrides(env_overrides))
     if env_overrides:
         print(f"Using env overrides: {env_overrides}")
-    subprocess.run(
-        ["python", script],
-        check=True,
-        cwd=project_root,
-        env=env,
-    )
-
-    volume.commit()
-    print("Training complete, checkpoint saved to volume")
+    try:
+        subprocess.run(
+            ["python", script],
+            check=True,
+            cwd=project_root,
+            env=env,
+        )
+    finally:
+        volume.commit()
+    print("Script complete, volume changes committed")
 
 
 @app.local_entrypoint()
