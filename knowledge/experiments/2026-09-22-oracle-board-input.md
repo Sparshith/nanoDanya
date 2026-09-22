@@ -9,6 +9,10 @@ the fatal `36...g5` with the correct board supplied. This follows the
 piece readout did not establish stronger play. The new intervention supplies
 correct piece locations directly to the move predictor during training and play.
 
+Follow-up: at [temperature 0.2](2026-09-22-board-input-temperature-02.md) for both
+models, 4,000 fresh games score 46.54% for the actual-board model (95% interval
+45.24–47.88%). The lower-temperature comparison favors the control.
+
 ## Matched experiment
 
 - Initialize both arms from the original 15M champion, SHA256
