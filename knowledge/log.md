@@ -367,3 +367,515 @@ Also: modal_train.py image now installs fairy-stockfish (needed here, and for th
 eval-delta GRPO v1 reward later). Probes: scratch/kl_by_distribution.py,
 scratch/disagreement_quality.py. Learner-facing writeup with charts:
 plot/grpo-kl-drift/ (local only, gitignored).
+
+## 2026-08-26 GRPO v1 data prep: mixed positions with per-legal-move winprob tables
+
+v1 recipe (from the v0 verdict): mixed positions, dense eval reward, same GRPO
+machinery. `data_prep/prepare_grpo_eval_positions.py` materialized 120k positions
+to `datasets/mixed/grpo-eval` (117,548 train / 2,452 val by game-id hash, first
+100k games still excluded): 50% ordinary game plies (random ply >= 16, openings
+skipped), 50% puzzle positions (post lead-in, as v0). Each record stores a SAN ->
+winprob table over every legal move from one fairy-stockfish MultiPV search
+(movetime 0.2s, avg depth 10.6, avg 30.7 legal moves, zero multipv misses).
+Winprob = 1/(1+exp(-0.00368208*cp)), cp clamped +/-1000, mover's perspective.
+
+Quality checks: mean winprob spread within a position 0.63 (reward separates
+moves); the played move / puzzle solution ranks top-1 in the table 69.8% of the
+time, avg rank 2.74 of 30.7. Prep cost ~25 min of engine time on 17 workers.
+
+`training/train_grpo.py` rewritten in place for v1 (v0 in git history): reward =
+sampled move's winprob (all annotation variants), illegal draws get
+ILLEGAL_REWARD=0.0 (below the 0.025 clamp floor). Group-mean baseline cancels the
+per-position winprob offset, so the gradient signal equals eval-delta. The KL
+leash now sees mixed positions, the fix for v0's off-distribution middlegame
+drift. Analytic val: expected winprob, gap to engine-best, p(best move), illegal
+mass, KL, entropy. 300-step pilot launched, results pending.
+
+## 2026-08-26 GRPO v1 pilot: dials pass, gentler and steadier than v0
+
+300-step pilot on the mixed winprob dataset (A10G, micro-batch 16 x grad-accum 4 =
+effective 64, K=8, temp 0.8, kl_beta 0.05, lr 1e-5). Two false starts: OOM at
+micro-batch 64 (mixed-position prefixes run 300-500 tokens, much longer than v0's
+puzzle prefixes), and VAL_BATCHES defaults to 1 (16 positions/eval, pure noise;
+v0's pilot dials were also thin). Final run: EVAL_INTERVAL=25, VAL_BATCHES=64
+(1,024 positions/eval).
+
+Curve over 1-300: expected winprob 0.524 -> 0.568 (best step 275), gap-to-best
+0.167 -> 0.126, p(best) 0.236 -> 0.250, illegal mass 1.93% -> 1.40% (DOWN; v0 was
+flat then regressed on benchmark), KL rises to ~0.20 and holds (v0: 0.5-0.65),
+entropy 1.05 -> 0.74. Unlike v0's fast 75-step saturation, v1 was still improving
+at step 300; dense reward has more to teach. Checkpoint:
+`checkpoints/grpo/eval-v1/grpo_v1_pilot_best.pt`. Same-day verdict suite launched
+(puzzles / legality 4096 / sf1500 400 / H2H 400 vs champion); champion baselines
+reused from the 2026-08-16 same-protocol files.
+
+## 2026-08-26 GRPO v1 verdict: strength kept, ~80% of the puzzle gains kept
+
+Same-day suite on `grpo_v1_pilot_best.pt` (step 275) vs the 2026-08-16 champion
+files: puzzles first-move 63.6% / full-solve 46.0% (champion 54.9/38.1, v0
+specialist 66.4/47.9); raw real-illegal 0.27% (champion 0.20%, v0 0.59%); SF1500
+199/400 = 49.75% (champion 53.25%); H2H vs champion 212/400 = 53.0% (v0 35.5%).
+Both strength reads are within ~1 sigma of even: strength is a tie, not a loss.
+The v0 reward-misspecification failure is fixed. Champion unchanged; promotion
+needs SF1500 clearly above 53.25%. Pilot was still improving at step 300 (KL
+plateau 0.20), so the next lever is a longer run with early stopping on the
+1,024-position winprob dial. Results renamed to `*_grpo_v1_pilot_*`; full note
+`experiments/2026-08-26-grpo-eval-v1.md`; dial charts plot/grpo-v1-pilot-dials/.
+
+## 2026-08-26 Human blunder-rate baseline from the puzzle-games evals
+
+Question: what do humans score on the move-quality blunder rule (cp-300)?
+Needed as the yardstick for the model's rate. Answered without any engine
+time: `scratch/human_blunder_rate.py` reads the per-move Stockfish evals already
+stored in `puzzles_raw/puzzle_games_ndjson.txt`, computes cp loss from the
+mover's POV (mate = +/-100000, same MATE_SCORE as benchmark/run.py), counts
+loss >= 300 as a blunder, and bins each move by the mover's own rating. Full
+pass: 3,190,827 games / 249.4M moves scored, 2,938 games skipped (missing or
+mismatched analysis). ~1h on A10G (CPU-bound json parsing).
+
+Blunder% by mover rating (mistake% = loss >= 100): 800-1000 24.1%/39.4%,
+1400-1600 10.6%/22.5%, 1600-1800 9.5%/21.0%, 1800-2000 8.3%/19.0%, 2000-2200
+7.3%/17.2%, 2200-2400 6.6%/15.7%, 2400-2600 6.2%/14.8%, 2600-2800 5.8%/13.7%,
+2800-3000 5.5%/12.9%. All moves: 8.07% blunder, 18.44% mistake, median cp loss
+14. Monotonic in rating; bins past 3000 are tiny (<31k moves) and noisy.
+
+Correction while placing the model: the 11.8% previously quoted as "the
+champion's" blunder rate is NOT the champion. The 2026-06-25 move-quality run
+tested `eval-aware/v2` (deleted 2026-07-04) on only 600 positions. No direct
+champion measurement existed; one is now running (8,192 positions,
+stockfish-time 0.1). Caveats on the human side: every game here
+produced a puzzle, so it contains at least one big mistake by construction
+(reads slightly high, which is generous to the model); and the human number is
+lichess-analysis evals over full games while the model number is a fixed-limit
+engine over sampled positions, so treat the comparison as approximate. This is
+the missing baseline for the "metrics to move" line in STATE.md.
+
+## 2026-08-26 Champion move-quality: 7.6% blunder rate, ~2000-level move safety
+
+Direct measurement at last (the old 11.8% was eval-aware/v2 on 600 positions).
+`modal_benchmark.py --mode move-quality --model plain/games-15m --max-positions
+8192 --stockfish-time 0.1` (deeper than the old 0.02 default, closer to the
+lichess server analysis behind the human baseline). 8,192 positions = every ply
+of ~110 eval/base val games, 0 failures, 42.5 min on A10G. Required an OOM fix
+first: `last_logits_for_prefixes` yielded views into each batch's full logits
+tensor, pinning every batch on the GPU (~15GB at 8k positions); `.clone()` on
+the yielded slice (run.py:317) flattens memory. Old <=600-position runs never
+tripped it.
+
+Numbers: blunder_rate_cp_300 7.59% (binomial 95% CI ~+/-0.6, wider with
+game clustering), median cp loss 15, avg cp loss 1865, best-move match 46.4%.
+Result file `benchmark/results/modal_move_quality_20260826_181046.jsonl`.
+
+Placement on the human ladder (same cp-300 rule, 2026-08-26 baseline): between
+1800-2000 humans (8.3%) and 2000-2200 humans (7.3%); median cp loss matches the
+human overall median (15 vs 14). So per-move safety looks ~2000-level, NOT the
+"blunders like a sub-1400" story the stale 11.8% suggested. Caveats: positions
+come from human games (the model's own games may drift into worse territory,
+cf. the conversion-cliff evidence), the human baseline reads slightly high
+(puzzle-bearing games), and the eval depths still differ. The gap between
+~2000-level per-move safety and much weaker full-game results points at
+compounding/conversion, not per-move blunder frequency, as the thing to fix.
+
+## 2026-08-28 Bot's own games: blunder rate 10.3%, exactly its rating class
+
+Follow-up to the champion's 7.59% on human positions: same cp-300 rule over the
+lichess bot's own 381 rapid games (BOT nanoDanya, rating 1446, 162W 62D 157L vs
+other bots). `scratch/bot_blunder_rate.py` scores every position once with
+fairy-stockfish 0.1s (mate +/-100000), loss from the mover's POV, bot moves
+only (16,432). Games fetched with the bot's own token via
+`scratch/fetch_bot_games_modal.py` (anonymous user-export of nanoDanya is
+permanently 429/"one at a time"; the authenticated slot works).
+
+Overall: 10.31% blunder / 22.35% mistake, median cp loss 16; 92.7% of games
+contain >=1 bot blunder. On the human ladder 10.31% = the 1400-1600 bin
+(10.6%), i.e. in its OWN games the model blunders exactly like its 1446 rating,
+while on human-game positions it scores 7.59% (~2000-level). The 2.7-point gap
+is compounding/off-distribution error, measured directly.
+
+Splits are the interesting part. By phase: ply 1-20 2.3%, 21-40 9.7%, 41-60
+14.3%, 61-80 15.8%, 81+ 12.6% (openings are memorized; the late middlegame is
+the cliff). By position state before the move: equal 3.96%, winning (>+200)
+12.47%, losing 15.01% - the model is very clean in balanced positions and
+throws away winning ones at 3x that rate, the conversion-cliff story now
+quantified on its own games. By result: 8.0% in wins, 10.3% in draws, 12.6% in
+losses. Caveats: opponents are bots (1000-2200 rapid), and the human baseline
+has no winning/losing split to compare against yet.
+
+## 2026-08-29 GRPO v1 extended run launched (resume pilot -> 1500 steps)
+
+Lit review (GRPO-in-chess) first: our v0->v1 arc replicates the published
+finding (binary best-move reward fails on small models, dense engine-score
+reward works, arxiv 2507.00726); the field's main trap is "dead groups" (all K
+draws same reward, 28-45% of batches wasted with binary rewards); published
+useful windows are tens-to-low-hundreds of steps, so the long run must catch
+the turn, not assume it isn't there. Added a dead_groups val metric to
+train_grpo.py (K sampled draws per val position, fraction of groups with zero
+reward spread).
+
+Run: pilot best (step 275) copied to grpo_v1_long.pt on the volume, resumed
+with optimizer state. A10G, micro 16 x accum 4, MAX_ITERS=1500,
+EVAL_INTERVAL=25, VAL_BATCHES=64 (1,024 positions/eval), CKPT_INTERVAL=100,
+early stop on neg_reward: patience 10 evals (250 steps), min_steps 500,
+min_delta 5e-4. Best checkpoint grpo_v1_long_best.pt. Results pending; verdict
+suite (puzzles/legality/sf1500/H2H) on the best checkpoint when it finishes.
+
+## 2026-08-29 GRPO v1 extended run verdict: ceiling reached, champion equaled, not beaten
+
+Resumed pilot (275) ran to early stop at 875; best step 625 (expected winprob
+0.5733 vs pilot 0.568). Dial anatomy: slow grind 275-625, then 250 flat steps
+with KL creeping (0.20 -> 0.27) and dead_groups rising (37% -> 47%): the
+sharper the policy, the more groups sample the same move 8 times and teach
+nothing. Same-protocol verdict suite on grpo_v1_long_best.pt
+(`*_grpo_v1_long_*` files):
+
+| metric | champion | v1 pilot (275) | v1 long (625) |
+|---|---|---|---|
+| puzzle first-move | 54.9% | 63.6% | 63.3% |
+| puzzle full-solve | 38.1% | 46.0% | 45.8% |
+| raw real-illegal | 0.20% | 0.27% | 0.20% |
+| vs SF1500, 400 | 53.25% | 49.75% | 52.1% |
+| H2H vs champion, 400 | — | 53.0% | 50.1% |
+
+Reading: the extension recovered legality to exactly champion level and pulled
+SF1500 back within noise of champion (52.1 vs 53.25); puzzles unchanged from
+pilot. Net position of the v1 line: champion strength + ~8 points of puzzle
+tactics + champion legality, from one A10G recipe. No promotion (bar: SF1500
+clearly above 53.25). Single-position winprob GRPO on human-game positions is
+now harvested; 350 extra steps moved the dial +0.005 and no benchmark beyond
+noise. Next lever is the position distribution: self-play positions
+(winning/late-middlegame oversampled) targeting the conversion cliff the
+2026-08-28 bot-games analysis quantified. Extension details appended to
+experiments/2026-08-26-grpo-eval-v1.md.
+
+## 2026-09-18 Own-game exact policy pilot: positive strength result
+
+User authorized trying broad own-game positions with full-distribution expected
+reward after reviewing the tiny stalemate experiments' transfer failures.
+Prepared 11,676 engine-graded positions from 400 archived champion-vs-SF1500
+games: complete-game splits 320/40/40, positions 9,449/1,067/1,160, cross-split
+matching boards removed. Full legal coverage at 50k MultiPV nodes; average
+minimum depth 12.31. Half uniform / half winning-or-playable-blunder training
+sampling. Retained sigmoid reward/clamp; exact legal-conditional objective plus
+raw KL 0.05, temp 0.8, all parameters, AdamW 3e-6, batch 64, 300 fixed updates.
+
+Step 300 selected using the fixed full validation set and predeclared KL/illegal
+mass bounds. Untouched test reward 0.605658 -> 0.608512; blunder probability
+14.96 -> 14.21%, game-bootstrap 95% change -0.918 to -0.606 percentage points.
+Raw top choice outside legal mapping (including EOS) worsened from 25 to 31
+of 1,160 positions. This measure differs from standard real-illegal benchmarks.
+
+Fresh strength tests: H2H vs champion 194W/66D/140L, 56.75%, estimated +47.2 Elo
+(approximate independent-game 95% +16.1 to +79.1). SF1500 230W/38D/132L, 62.25%,
+versus fresh champion 185W/31D/184L, 50.125%. Existing harness scores caps as
+draws: H2H 4, candidate SF 12, champion SF 7. All 1,200 games replayed legally
+and outcomes/scores verified. Nineteen focused tests and a CPU integration smoke
+passed. The original champion checkpoint, serving, and registry are unchanged.
+
+This is a positive pilot on both held-out engine feedback and full games,
+not a confirmed >=50 Elo gain or a public rating estimate. Changes to data,
+objective, scope, and budget are not causally isolated. Independent replication
+is the next step before promotion. Full protocol, artifacts, and limits:
+`experiments/2026-09-18-own-games-exact-policy.md`.
+
+## 2026-09-18 10,000-game scale run launched
+
+User requested a 10,000-source-game follow-up to the positive exact-policy pilot.
+Collection is running with saved-shard recovery after an initial attempt failed
+on engine-response timeouts. Planned split: 8,000/1,000/1,000 complete games;
+original champion initialization, same reward and effective batch, 7,500 updates.
+A10G memory smoke via scratch/check_exact_batch_memory.py passed two AdamW
+updates at physical/effective batch 64 and maximal 200-token histories: allocated
+18.05 GiB, reserved 18.48 GiB. No smoke weights saved. Use batch 64 directly to
+avoid accumulation overhead. Protocol and active status:
+experiments/2026-09-18-own-games-exact-10k.md. No scale-run result yet.
+
+## 2026-09-18 10k collection and grading complete
+
+All 10,000 source games replay-audited; 8,000/1,000/1,000 game split yielded
+231,377/28,901/29,194 positions. CPU grading completed with complete legal-move
+tables, mean minimum depth 12.295; engine binary and reward match the pilot.
+Fresh champion control: SF1500 181W/42D/177L (50.5%), 12 capped games; raw
+legality 8/4,096 real-illegal top choices. Training 7,500 updates launched on
+A10G, app ap-m3KSwjOSY5ylzqYC8NWOYp. No scale candidate result yet.
+
+## 2026-09-18 10k exact-policy scale run complete
+
+Completed all 7,500 updates, selected step 5,500 from fixed validation. A
+pre-update vocabulary assertion failure was fixed to match inference support:
+27 training / 3 validation / 1 test positions contain unrepresentable legal SAN,
+mostly promoted-piece disambiguation. Keep complete engine tables and positions;
+those moves have zero policy probability. No vocabulary or reward change.
+Twenty-six focused tests pass, including inference action-support equivalence.
+
+Fresh 1,000-game H2H vs champion: 501W/194D/305L, 59.8%, +69.0 Elo
+(approximate independent-game 95% +49.6 to +88.9). Fresh 1,000 vs pilot:
+465W/194D/341L, 56.2%, +43.3 Elo (+24.0 to +62.9). SF1500 candidate
+250W/38D/112L (67.25%) vs fresh champion 181W/42D/177L (50.5%), 400 each.
+All 2,800 matches replay-audited. Caps scored as draws: 29/9/9/12 respectively.
+One H2H worker checkpoint-read failure recovered by automatic retry before play.
+
+Untouched test 29,194 positions / 999 games: expected reward .614319 -> .619790;
+blunder probability 16.17 -> 14.68%, game-bootstrap 95% change [-1.573, -1.425]
+percentage points. Own-game raw top-choice illegality 760 -> 828 / 29,194;
+standard raw legality nearly unchanged, 8 -> 9 / 4,096. Both data and update
+budget increased, so their causal contributions are not isolated. Point estimate
+exceeds +50 Elo, but a strict >=50 lower confidence bound is not established.
+
+Selected weights: /data/checkpoints/grpo/own-games-exact-10k-20260918/best.pt
+on nanodanya-data. Reports: data/traces/grpo/own-games-exact-10k-20260918/.
+Full recipe/results: experiments/2026-09-18-own-games-exact-10k.md.
+Champion, registry, and live bot unchanged. No commit or push.
+
+## 2026-09-19 new exact-policy model deployed to Lichess
+
+User requested playing other bots to measure live rating improvement. The existing
+scheduled listener was already active; the previous endpoint still served the
+plain 15M L16 model. Captured baseline immediately before deployment: nanoDanya
+rapid 1418, 514 rapid games, rating deviation 45; zero active games. Old-model
+public play had continued since July, rather than being paused.
+
+Changed inference/serve.py to the selected step-5,500 checkpoint at
+/data/checkpoints/grpo/own-games-exact-10k-20260918/best.pt. Added the loaded
+checkpoint identity to startup logs and disabled autograd for inference.
+Staging on the serving T4 passed six legal-move checks (including 100/190-ply
+histories); five existing inference tests passed. Deployed nanodanya-chess at
+about 08:28 IST on 2026-09-19. Production logs confirm the actual step-5,500
+load; /health identifies the new path; six live HTTP move checks passed at
+bot temperature 0.8. Cold first request 12.85s, remaining requests about 1.2s.
+
+The existing listener, matchmaking, and endpoint URL remain in place, with no
+restart or duplicate listener. Rated 10+0, temperature .8, the existing daily
+counter of five, and two-hour matchmaking gap remain. Registry benchmark
+baseline is still plain/games-15m. No commit or push. Public rating improvement
+is not measured yet; compare subsequent rapid games against this starting point.
+Evidence: data/traces/lichess/2026-09-19-exact-10k/{baseline,predeploy,
+staging_smoke,deployed_http_smoke,deployment}.json. Staging app:
+ap-zSIC1Ep8dKwKZh50lqgJEL. Production app: ap-RE14skCzOhsQrN6oN6WtmD.
+
+## 2026-09-19 one-day 50-game Lichess allowance
+
+User asked to play all 50 games today. Confirmed four games already played on
+2026-09-19 IST, all before the model switch; account rapid baseline still 1418
+at 514 games. The old configured cap was five, with volatile per-process state.
+
+Added lichess_bot/schedule.py: cap 50, one-minute start/finish cooldown and
+matchmaking tick on 2026-09-19 only. At 2026-09-20 00:00 IST, automatically return
+to five games/day and two-hour start gap / five-minute tick. Games in progress
+finish normally. Today therefore has room for 46 more starts, subject to opponents
+accepting. Rated 10+0, model checkpoint, temperature, and opponent rating range
+remain unchanged.
+
+Persist started-game IDs/timestamps and last finish in Modal Dict
+nanodanya-lichess-state, reconciled from two days of Lichess history on startup.
+Incoming challenges share the cap, spacing, and busy/pending guards. A lock
+serializes admission; max_containers=1 prevents duplicate listeners. Reconnects
+keep the active game reserved and do not double-count starts. Terminal game
+statuses release the slot; player color is retained from gameFull instead of
+fetching the game on every move. Finish active games before scheduled handoff.
+Pinned existing berserk 0.14.0/chess 1.11.2, plus requests 2.34.2.
+
+Six scheduling tests cover IST expiry, cap 50 after persistence/reload, duplicate
+starts, overnight games, finish cooldown, and restoration of the normal cap/gap;
+five inference tests also pass. Two remote preflights authenticated successfully
+and found 4/50, 60-second gap/tick, no active games. Lichess bulk game export works
+now, unlike the July observation. Stopped the idle old listener before deploying
+and starting one replacement at 08:42 IST. New app ap-MGyut1JTvJhHl83znXeBjM,
+call fc-01M2VTDFSXNKEQ8R1S28TZWPM1. Logs confirm the effective 4/50 budget.
+No commit or push. Baseline evidence:
+data/traces/lichess/2026-09-19-exact-10k/burst_predeploy.json.
+
+The first three faster challenges were rejected because the opponents themselves
+had reached Lichess's rolling 100 bot-game allowance (bernstein-4ply,
+bernstein-2ply, maia1). Added persistent opponent cooldowns using the server's
+retry deadline; unknown/account-wide rate limits pause all outgoing challenges.
+Non-rate-limit rejections cool down that opponent for 30 minutes. Scan up to
+200 online bots while retaining the same preferred rating range. Two additional
+cooldown tests pass, eight scheduling tests total. After another idle replacement,
+final listener app is ap-s4PQOPgzSbbEynydynVMdg, call
+fc-01M2VTNPQMQ9DPA1PWKMRZEH6W. One container confirmed; startup again reports
+4/50, and the first new challenge went to Annie_Archy. Reaching 50 depends on
+opponent availability; no completed additional game was claimed at activation.
+Final deployment evidence: data/traces/lichess/2026-09-19-exact-10k/burst_deployment.json.
+
+## 2026-09-19 first live batch and move-delivery repair
+
+At 15:42 IST the 50-start allowance was exhausted: four pre-switch starts plus
+46 with the exact-10k model. New model: 43 completed (11W/7D/25L), three aborted,
+rapid 1418 -> 1409 (-9), average opponent rating 1614.7. Four losses were on time.
+Logs confirm game 7R8k6PiW lost the move-submission response at 15:00:21 and
+waited until an outoftime event at 15:10:02. Do not attribute the other three
+timeouts to infrastructure without evidence. No live rating gain established.
+Evidence: data/traces/lichess/2026-09-19-exact-10k/progress_summary.json.
+
+Shared GZrvqz3j, Black vs dala-1300 (1277), as a chess loss for manual analysis:
+36...g5 37.Rh2#, Black still had 9:22. Saved its PGN in the same artifact directory.
+
+Extracted the game loop into lichess_bot/game.py. Submission exceptions now
+close the stream and reconnect after five seconds to get authoritative state.
+If the position is unchanged, retry the same selected move; if Lichess accepted
+it despite losing the response, do not replay it. Suppress duplicate successful
+submissions for the same history; terminal snapshots end recovery. HTTP 429
+backs off 65 seconds. Existing inference-failure fallback and cold-start behavior
+are unchanged. Seven recovery tests plus eight scheduling and five inference
+tests pass (20 total), including both outcomes of an ambiguous submission.
+
+Remote preflight confirmed idle, 50/50, no ongoing games. Stopped the old listener
+before replacement. Deployed app ap-Qq3yIOBQ0y3CMjq0pguBD0 and started call
+fc-01M2WJX4EA126JZAGWVD5Y52JB at 15:50 IST. One listener container verified;
+startup retained 50/50. No further games authorized today. Recovery is tested
+with simulated failures, not yet observed in a subsequent live game.
+Deployment evidence: data/traces/lichess/2026-09-19-exact-10k/reliability_deployment.json.
+No commit or push.
+
+Manual-loss audit: replayed GZrvqz3j and exhaustively checked every legal Black
+move at move 36 against every legal White reply using python-chess. Exactly
+one of 15 legal moves, g5, permits mate in one (Rh2#); the other 14 avoid
+immediate mate. This does not establish their engine values or longer-term
+survival. The trainer selects on aggregate expected engine reward with KL and
+legality guards, not a dedicated mate-in-one blunder metric. Reward clipping
+also maps forced losses and cp <= -1000 to the same reward, but its relevance
+to this position is untested. Need baseline/candidate move distributions on
+this position and a held-out suite before attributing the loss to sampling,
+training regression, reward saturation, or generalization.
+
+## 2026-09-19 probability of the mate-in-one blunder
+
+Reconstructed all 71 plies before Black's 36th move in GZrvqz3j. Ran the
+unchanged production ChessModel loader and get_move path on a Modal T4,
+checkpoint exact-10k step 5500, temperature 0.8, legal mask, EOS suppressed.
+Captured logits at the sampler without changing production deployment.
+g5 token probability 0.4980331957; Kg5 0.4794963300; Ra3 0.0052861390.
+g5 is the highest-probability legal token, so greedy selection also blunders
+in this reconstruction. It is not merely a low-probability tail event.
+The existing mask admits check/mate suffix variants; g5+/g5# together add
+approximately 0.0000012054 probability, immaterial at the reported precision.
+This is recomputed probability, not a probability recorded during the game.
+No baseline comparison yet; it does not establish a training-induced regression.
+Probe app ap-nRvbgIhdBQYvFvQyZOqZBk completed. Scratch script:
+scratch/probe_lichess_g5.py. Full distribution and history:
+data/traces/lichess/2026-09-19-exact-10k/g5_probability.json.
+
+Pre-RL comparison completed with the original initialization checkpoint
+/data/checkpoints/plain/games-15m/l16_best.pt (loader reports step 148400).
+Identical 71-ply history, T4 production inference implementation, temperature
+0.8, legal support and EOS suppression. g5: 55.2913606% before -> 49.8033196%
+after (-5.4880410 percentage points). Kg5: 41.1459863% -> 47.9496330%.
+g5 ranks first in both. This position's mate-threat weakness predates RL;
+fine-tuning reduced its probability but did not fix the ranking. This single
+position does not establish broader mate-threat improvement. Source checkpoint
+was substituted only inside the isolated probe; production serving unchanged.
+App ap-TnwmdpWmiYJiFUTSkUcbGH completed. Artifacts alongside the candidate probe:
+g5_probability_baseline.json and g5_comparison.json.
+
+## 2026-09-19 mate-threat sampling experiment launched
+
+User authorized the bounded real-game mate-threat experiment. Frozen protocol
+and mining audit: experiments/2026-09-19-mate-threat-oversampling.md. Exact
+labels, 1,000/250/299 target positions from disjoint source games, original
+pre-RL initialization for both 300-update arms, uniform versus half-targeted
+sampling. Training curves and unseen-game test are separate; final checkpoints
+fixed in advance, followed by 400 fresh targeted-versus-control games.
+Sixteen focused tests pass. No synthetic data or production changes.
+
+## 2026-09-19 mate-threat sampling experiment completed
+
+Both equal-budget 300-step arms and all 400 fresh games completed. Targeted
+training mate-in-one probability 6.193% -> 0.626%; validation 5.746% -> 4.795%.
+On 299 game-disjoint test threats, baseline 4.617%, uniform control 4.227%,
+targeted 3.749%. Extra benefit -0.478 pp, paired game bootstrap 95%
+[-0.831, -0.143]. Greedy errors 14/299 -> 13 control / 12 targeted; greedy
+improvement not established. Ordinary test reward improves similarly in both;
+raw illegal mass/top-choice legality worsens with targeting (25/999 raw invalid
+versus control 18/999, original 19/999; includes EOS/notation mapping).
+
+Fresh targeted-v-control H2H: 168W/81D/151L, 52.125%/400, approximate Elo
++14.8 [-15.7, +45.4], six caps. All games legally replayed and outcome-audited,
+200 per color. No established overall strength gain, no equivalence claim.
+Known g5 diagnostic: original 55.291%, uniform control 61.254%, targeted
+44.920%; targeted now ranks Kg5 first at 51.843%. This is exploratory evidence,
+not an independent test. Strong training fit plus small held-out benefit suggests
+limited generalization; more distinct real threat coverage is worth testing
+before additional repetition. Full details and limitations:
+experiments/2026-09-19-mate-threat-oversampling.md.
+
+Scripts: scratch/mine_mate_threats.py, train_mate_threats.py,
+audit_mate_selection.py, report_mate_threats.py, probe_lichess_g5.py;
+16 focused tests passed. Source-game/board separation, frozen protocol hashes,
+identical baselines and final checkpoint steps verified. All experiment apps
+completed. Reports: data/traces/grpo/mate-threats-20260919/summary.json.
+No production change, commit, or push.
+
+## 2026-09-19 expanded coverage follow-up and literature check
+
+User authorized more distinct threat examples at fixed training budget and asked
+about DeepMind Searchless Chess. Expanded pool contains 2,208 distinct source
+games (original 1,000 is a subset), still 300 updates with half-targeted batches.
+Original pre-RL initialization; compare against saved narrow targeted checkpoint.
+Collecting 2,000 fresh champion-v-SF1500 games for a new primary evaluation,
+excluding old archive board states. Fixed 400-game expanded-v-narrow H2H planned.
+Protocol: experiments/2026-09-19-mate-threat-coverage.md. No production change.
+Promoted reusable scripts to data_prep/prepare_mate_threats.py and
+training/train_mate_threats.py; 16 focused tests still pass.
+
+Primary-source research corrects the premise: DeepMind's original Searchless
+Chess used Stockfish-supervised training; AlphaZero used self-play RL with MCTS.
+The Searchless Chess paper reports tactical mistakes and winning-position
+conversion trouble, with a Stockfish-assisted live-play workaround. A newer
+independent self-play RL preprint also separates tactical gains from game
+strength. Sources and interpretation:
+experiments/2026-09-19-searchless-chess-comparison.md.
+
+## 2026-09-19 expanded mate-threat coverage completed
+
+Expanded 1,000 -> 2,208 distinct training-game threats at fixed 300 updates.
+The new 2,000-game source yielded 500 eligible threat positions from separate
+games and 1,000 ordinary positions, with all old archive boards excluded.
+Frozen selection preceded inference. Fresh mate-in-one blunder probability:
+original 6.846%, narrow 5.176%, expanded 4.911%. Primary expanded-minus-narrow
+-0.265 pp, paired 10,000-resample 95% [-0.478, -0.064]. Greedy errors 26/16/18;
+expanded-minus-narrow +0.4 pp [-0.6, +1.4]. Ordinary reward essentially unchanged
+between trained models (0.63475/0.63485); raw illegal top choices 33/35 of 1,000.
+
+Audited expanded-versus-narrow H2H: 151W/93D/156L, 49.375% over 400 games,
+Elo -4.3 with approximate 95% [-34.3, +25.6]. Four unresolved caps counted as
+draws. More coverage gives a small probability improvement, but no established
+strength gain or decisive-move improvement. One training seed only. No live
+model change. Fresh inference app ap-CmyYGyyewMRlerJdGtlUQW; full results in
+experiments/2026-09-19-mate-threat-coverage.md and local
+data/traces/grpo/mate-coverage-20260919/summary.json.
+
+Reusable trainer and mate-label helpers promoted to training/train_mate_threats.py
+and data_prep/prepare_mate_threats.py; dataset path is configurable. Sixteen
+focused mate-threat/exact-policy tests pass. Next recommended diagnostic is
+explicit-board/value supervision, with game strength checked separately from
+tactical scores; this is a recommendation, not an executed follow-up.
+
+## 2026-09-20 second Modal workspace, raw game shards recovered from GCS
+
+Added a second Modal profile `second` (workspace workspace2) next to `sparshithsampath`
+in `~/.modal.toml`; `sparshithsampath` stays active, use `MODAL_PROFILE=second` for
+workspace2. workspace2 already had a `nanodanya-data` volume with `checkpoints/plain/games-15m/`
+(l16_best.pt), `datasets/lichess-2026-08-elo2000-rapid-classical-min30/` and
+`raw/lichess/standard/2026-08`.
+
+The January 2025 shards behind `datasets/games/15m` are gone (deleted with `archive/`
+on 2026-07-04, not on the laptop either). But six later months survive as another machine
+artifacts in the staging GCS bucket
+(`a private storage bucket`):
+12.1M games, 49 shards + manifest/summary per month, 3.9 GB, filters Elo>=2000,
+>=30 plies, Rapid+Classical+Blitz (about 85% Blitz, unlike the Rapid/Classical-only
+January set). Copied them via laptop into the workspace2 volume at `games_raw/` (61 files).
+Nothing was copied between Modal accounts; the old volume is untouched.
+
+## 2026-09-21 INT8 browser candidates benchmarked
+
+Ran the canonical Modal suite for INT8 exports of the 5M-game L12 (105.5M params,
+138.5 MB) and 15M-game L12 (107.6M params, 143.7 MB). The 15M version improved
+SF1000/SF1500 scores from 60/29.5% to 69.25/44%, full puzzle solves from 30.28%
+to 36.55%, and blunder rate from 9.38% to 8.33%. Both used the same benchmark
+positions and 8,800 puzzles; 1,200 INT8 games were replay-audited.
+
+A fresh 15M FP32 control scored 76.75% at SF1000 versus INT8's 69.25% (200 games
+each), so preserved FP32 strength remains unproven. Native CPU tests, not browser
+GPU or public Elo measurements. The canonical benchmark runner now accepts ONNX
+policy exports. Details: experiments/2026-09-21-int8-browser-models.md.
