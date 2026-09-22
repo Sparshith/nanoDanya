@@ -6,23 +6,24 @@ and calls the separate nanoDanya model endpoint when it is our turn.
 
 import modal
 
+from lichess_bot.schedule import can_start, challenge_cooldown, finish_trial_game, games_today, limits, record_game, trial_counts, trial_key
+
 app = modal.App("nanodanya-lichess-bot")
 
 image = modal.Image.debian_slim(python_version="3.11").pip_install(
-    "berserk", "chess"
-)
+    "berserk==0.14.0", "chess==1.11.2", "requests==2.34.2"
+).add_local_python_source("lichess_bot")
+
+state_store = modal.Dict.from_name("nanodanya-lichess-state", create_if_missing=True)
 
 NANODANYA_API_URL = "https://sparshithsampath--nanodanya-chess-serve.modal.run/move"
 BOT_TIMEOUT_SECONDS = 24 * 60 * 60
 RUN_SECONDS = int(23.5 * 60 * 60)
 
-MAX_GAMES_PER_DAY = 5
-MIN_SECONDS_BETWEEN_GAMES = 2 * 60 * 60
-MATCHMAKING_TICK_SECONDS = 5 * 60
-CHALLENGE_CLOCK_LIMIT = 600
-CHALLENGE_CLOCK_INCREMENT = 0
 OPPONENT_RATING_RANGE = (1000, 2200)
-ALLOWED_SPEEDS = {"rapid", "classical", "correspondence"}
+ALLOWED_SPEEDS = {"bullet", "rapid", "classical", "correspondence"}
+TRIAL_CLOCKS = {"rapid": (600, 0), "bullet": (60, 1)}
+TEMPERATURE = 0.2
 
 
 @app.function(
@@ -32,19 +33,19 @@ ALLOWED_SPEEDS = {"rapid", "classical", "correspondence"}
     timeout=BOT_TIMEOUT_SECONDS,
     cpu=0.125,
     memory=256,
-    max_containers=2,
+    max_containers=1,
 )
-def run_bot():
+def run_bot(dry_run: bool = False):
     import os
     import json
     import random
     import urllib.request
     import threading
     import time
-    import chess
+    from lichess_bot.game import play_game
     import berserk
 
-    def get_nanodanya_move(moves: list[str], temperature: float = 0.8) -> str:
+    def get_nanodanya_move(moves: list[str], temperature: float = TEMPERATURE) -> str:
         data = json.dumps({"moves": moves, "temperature": temperature}).encode()
         req = urllib.request.Request(
             NANODANYA_API_URL,
@@ -55,52 +56,94 @@ def run_bot():
         result = json.loads(resp.read().decode())
         return result["move"]
 
-    def san_to_uci(board: chess.Board, san: str) -> str:
-        move = board.parse_san(san)
-        return move.uci()
-
-    def uci_to_san(board: chess.Board, uci: str) -> str:
-        move = chess.Move.from_uci(uci)
-        return board.san(move)
-
     class NanoDanyaBot:
         def __init__(self, token: str):
             session = berserk.TokenSession(token)
             self.client = berserk.Client(session)
             self.username = self.client.account.get()["username"]
             self.active_games = set()
-            self.games_today = 0
-            self.games_today_date = time.strftime("%Y-%m-%d", time.gmtime())
-            self.last_game_start = 0.0
+            self.lock = threading.RLock()
+            self.state = state_store.get("budget", {"games": {}, "last_game_finish": 0})
+            bullet_config = state_store.get("bullet_config")
+            if bullet_config:
+                self.state.setdefault("bullet_trial", bullet_config)
+            self.state.setdefault("challenge_cooldowns", {})
+            cutoff = time.time() - 2 * 24 * 60 * 60
+            self.state["games"] = {gid: start for gid, start in self.state["games"].items() if start >= cutoff}
+            history_since = min(cutoff, *(self.state.get(key, {}).get("started_at", cutoff) for key in ("trial", "bullet_trial")))
+            for game in self.client.games.export_by_player(
+                self.username, since=int(history_since * 1000), ongoing=True,
+                moves=False, clocks=False, evals=False, opening=False,
+            ):
+                record_game(self.state, game["id"], game["createdAt"].timestamp(), game.get("speed", "rapid"))
+                finish_trial_game(self.state, game["id"], game)
+            if not dry_run:
+                state_store["budget"] = self.state
             self.pending_challenge_id = None
+            self.pending_since = 0.0
+            self.draining = False
             print(f"Logged in as: {self.username}")
+            print(f"Move temperature: {TEMPERATURE}")
 
-        def _count_game_start(self):
-            today = time.strftime("%Y-%m-%d", time.gmtime())
-            if today != self.games_today_date:
-                self.games_today_date = today
-                self.games_today = 0
-            self.games_today += 1
-            self.last_game_start = time.time()
+        def _save_progress(self):
+            for speed in TRIAL_CLOCKS:
+                trial = self.state.get(trial_key(speed))
+                if not trial:
+                    continue
+                completed, pending = trial_counts(self.state, speed)
+                print(f"{speed} trial: {completed}/{trial['target']} completed, {pending} ongoing")
+                if completed >= trial["target"] and "finished_at" not in trial:
+                    trial["finished_at"] = time.time()
+                    print(f"{speed} trial complete; no further {speed} games will be started")
+            state_store["budget"] = self.state
+            for speed in TRIAL_CLOCKS:
+                trial = self.state.get(trial_key(speed))
+                field = "final_" + speed
+                if trial and "finished_at" in trial and field not in trial:
+                    try:
+                        trial[field] = self.client.account.get()["perfs"][speed]
+                        state_store["budget"] = self.state
+                        print(f"Final {speed} rating: {trial[field]}")
+                    except Exception as error:
+                        print(f"Could not fetch final rating: {error}")
 
-        def _at_daily_cap(self) -> bool:
-            today = time.strftime("%Y-%m-%d", time.gmtime())
-            if today != self.games_today_date:
-                return False
-            return self.games_today >= MAX_GAMES_PER_DAY
+        def _at_capacity(self):
+            return len(self.active_games) >= self.state.get("trial", {}).get("max_concurrent", 1)
 
         def matchmake(self):
-            if self.active_games or self._at_daily_cap():
+            with self.lock:
+                self._matchmake()
+
+        def _matchmake(self):
+            if state_store.get("drain", False):
+                self.draining = True
+            if self.draining:
+                self._cancel_pending()
                 return
-            if time.time() - self.last_game_start < MIN_SECONDS_BETWEEN_GAMES:
+            if self._at_capacity():
+                return
+            speed = next((speed for speed in ("bullet", "rapid") if can_start(self.state, time.time(), speed)), None)
+            if speed is None:
+                self._cancel_pending()
+                return
+            cooldowns = self.state["challenge_cooldowns"]
+            if time.time() < cooldowns.get("*", 0):
+                return
+            if self.pending_challenge_id and time.time() - self.pending_since < 60:
                 return
 
-            bots = list(self.client.bots.get_online_bots(limit=50))
+            for game in self.client.games.get_ongoing():
+                self.start_game(game["gameId"], game.get("speed", "rapid"))
+            if self._at_capacity() or not can_start(self.state, time.time(), speed):
+                return
+
+            bots = [bot for bot in self.client.bots.get_online_bots(limit=200)
+                    if time.time() >= cooldowns.get(bot["username"].lower(), 0)]
             lo, hi = OPPONENT_RATING_RANGE
             candidates = [
                 b for b in bots
                 if b["username"].lower() != self.username.lower()
-                and lo <= b.get("perfs", {}).get("rapid", {}).get("rating", 0) <= hi
+                and lo <= b.get("perfs", {}).get(speed, {}).get("rating", 0) <= hi
             ]
             if not candidates:
                 candidates = [b for b in bots if b["username"].lower() != self.username.lower()]
@@ -109,101 +152,50 @@ def run_bot():
                 return
 
             if self.pending_challenge_id:
-                try:
-                    self.client.challenges.cancel(self.pending_challenge_id)
-                except Exception:
-                    pass
-                self.pending_challenge_id = None
+                self._cancel_pending()
+                for game in self.client.games.get_ongoing():
+                    self.start_game(game["gameId"], game.get("speed", "rapid"))
+                if self._at_capacity() or not can_start(self.state, time.time(), speed):
+                    return
 
             opponent = random.choice(candidates)["username"]
-            print(f"Matchmaking: challenging {opponent}")
+            print(f"Matchmaking: challenging {opponent} for {speed}")
             try:
+                if speed == "bullet":
+                    get_nanodanya_move([])
+                clock_limit, clock_increment = TRIAL_CLOCKS[speed]
                 challenge = self.client.challenges.create(
                     opponent,
                     rated=True,
-                    clock_limit=CHALLENGE_CLOCK_LIMIT,
-                    clock_increment=CHALLENGE_CLOCK_INCREMENT,
+                    clock_limit=clock_limit,
+                    clock_increment=clock_increment,
                 )
                 self.pending_challenge_id = (challenge.get("challenge") or challenge).get("id")
-            except Exception as e:
+                self.pending_since = time.time()
+            except berserk.exceptions.ResponseError as e:
+                cause = e.cause if isinstance(e.cause, dict) else {}
+                if cause.get("ratelimit") or e.status_code == 429:
+                    owner, until = challenge_cooldown(cause, opponent, time.time())
+                    cooldowns[owner] = until
+                else:
+                    cooldowns[opponent.lower()] = time.time() + 30 * 60
+                state_store["budget"] = self.state
                 print(f"Matchmaking: challenge to {opponent} failed: {e}")
 
-        def handle_game(self, game_id: str):
-            print(f"Starting game: {game_id}")
-            board = chess.Board()
-            san_moves = []
-
-            for event in self.client.bots.stream_game_state(game_id):
-                if event["type"] == "gameFull":
-                    white = event["white"].get("name") or event["white"].get("id", "?")
-                    black = event["black"].get("name") or event["black"].get("id", "?")
-                    print(f"Game: {white} vs {black}")
-
-                    we_are_white = white.lower() == self.username.lower()
-                    state = event["state"]
-                    moves_uci = state["moves"].split() if state["moves"] else []
-
-                    for uci in moves_uci:
-                        san = uci_to_san(board, uci)
-                        san_moves.append(san)
-                        board.push_san(san)
-
-                    if self._is_our_turn(board, we_are_white):
-                        self._make_move(game_id, board, san_moves)
-
-                elif event["type"] == "gameState":
-                    moves_uci = event["moves"].split() if event["moves"] else []
-
-                    board = chess.Board()
-                    san_moves = []
-                    for uci in moves_uci:
-                        san = uci_to_san(board, uci)
-                        san_moves.append(san)
-                        board.push_san(san)
-
-                    if board.is_game_over():
-                        print(f"Game over: {board.result()}")
-                        return
-
-                    we_are_white = len(moves_uci) % 2 == 0
-                    if event.get("status") == "started":
-                        we_are_white = self._check_color(game_id)
-
-                    if self._is_our_turn(board, we_are_white):
-                        self._make_move(game_id, board, san_moves)
-
-        def _check_color(self, game_id: str) -> bool:
-            game = self.client.games.export(game_id)
-            white = game.get("players", {}).get("white", {}).get("user", {}).get("name", "")
-            return white.lower() == self.username.lower()
-
-        def _is_our_turn(self, board: chess.Board, we_are_white: bool) -> bool:
-            return board.turn == chess.WHITE if we_are_white else board.turn == chess.BLACK
-
-        def _make_move(self, game_id: str, board: chess.Board, san_moves: list[str]):
-            if board.is_game_over():
-                return
-
-            try:
-                print(f"Getting move for position after: {' '.join(san_moves[-6:]) if san_moves else 'start'}")
-                san_move = get_nanodanya_move(san_moves)
-                uci_move = san_to_uci(board, san_move)
-            except Exception as e:
-                print(f"Error choosing move: {e}")
-                legal_moves = list(board.legal_moves)
-                if not legal_moves:
-                    return
-                uci_move = legal_moves[0].uci()
-                san_move = board.san(legal_moves[0])
-                print(f"Fallback move: {san_move} ({uci_move})")
-
-            try:
-                print(f"Playing: {san_move} ({uci_move})")
-                self.client.bots.make_move(game_id, uci_move)
-            except Exception as e:
-                print(f"Lichess rejected move: {e}")
+        def _cancel_pending(self):
+            if self.pending_challenge_id:
+                try:
+                    self.client.challenges.cancel(self.pending_challenge_id)
+                except berserk.exceptions.ResponseError as e:
+                    if e.status_code not in (400, 404):
+                        raise
+                self.pending_challenge_id = None
 
         def handle_challenge(self, challenge: dict):
+            with self.lock:
+                self._handle_challenge(challenge)
+
+        def _handle_challenge(self, challenge: dict):
             challenge_id = challenge["id"]
             challenger = challenge["challenger"]["name"]
             variant = challenge["variant"]["key"]
@@ -222,13 +214,38 @@ def run_bot():
                 self.client.bots.decline_challenge(challenge_id, reason="tooFast")
                 return
 
-            if self._at_daily_cap():
-                print(f"Declining {challenger}'s challenge: daily game cap reached")
+            if self.state.get("trial") or self.state.get("bullet_trial"):
+                clock = challenge.get("timeControl", {})
+                if (not self.state.get(trial_key(speed)) or not challenge.get("rated")
+                        or (clock.get("limit"), clock.get("increment")) != TRIAL_CLOCKS.get(speed)):
+                    self.client.bots.decline_challenge(challenge_id, reason="later")
+                    return
+            elif speed == "bullet":
+                self.client.bots.decline_challenge(challenge_id, reason="tooFast")
+                return
+
+            if self.draining or self._at_capacity() or self.pending_challenge_id or not can_start(self.state, time.time(), speed):
                 self.client.bots.decline_challenge(challenge_id, reason="later")
                 return
+            if speed == "bullet":
+                get_nanodanya_move([])
 
             print(f"Accepting challenge from {challenger}")
             self.client.bots.accept_challenge(challenge_id)
+            self.pending_challenge_id = challenge_id
+            self.pending_since = time.time()
+
+        def start_game(self, game_id, speed="rapid"):
+            with self.lock:
+                if game_id in self.active_games:
+                    return
+                self.active_games.add(game_id)
+                record_game(self.state, game_id, time.time(), speed)
+                self._save_progress()
+                self.pending_challenge_id = None
+                print(f"Today's games: {games_today(self.state, time.time())}")
+                thread = threading.Thread(target=self._safe_handle_game, args=(game_id,), daemon=True)
+                thread.start()
 
         def run(self):
             print("nanoDanya Lichess Bot started!")
@@ -238,26 +255,38 @@ def run_bot():
                 if event["type"] == "challenge":
                     self.handle_challenge(event["challenge"])
                 elif event["type"] == "gameStart":
-                    game_id = event["game"]["gameId"]
-                    if game_id in self.active_games:
-                        continue
-                    self.active_games.add(game_id)
-                    self._count_game_start()
-                    self.pending_challenge_id = None
-                    thread = threading.Thread(target=self._safe_handle_game, args=(game_id,))
-                    thread.daemon = True
-                    thread.start()
+                    self.start_game(event["game"]["gameId"], event["game"].get("speed", "rapid"))
+                elif event["type"] in ("challengeCanceled", "challengeDeclined"):
+                    with self.lock:
+                        if event["challenge"]["id"] == self.pending_challenge_id:
+                            self.pending_challenge_id = None
 
         def _safe_handle_game(self, game_id: str):
+            result = None
             try:
-                self.handle_game(game_id)
-            except Exception as e:
-                print(f"Game {game_id} error: {e}")
+                result = play_game(self.client, game_id, self.username, get_nanodanya_move)
             finally:
-                self.active_games.discard(game_id)
+                with self.lock:
+                    if result:
+                        finish_trial_game(self.state, game_id, result)
+                    self.active_games.discard(game_id)
+                    self.state["last_game_finish"] = time.time()
+                    self._save_progress()
 
     token = os.environ["LICHESS_BOT_TOKEN"]
     bot = NanoDanyaBot(token)
+    ongoing = bot.client.games.get_ongoing()
+    cap, gap, tick = limits(time.time(), bot.state)
+    print(f"Matchmaking limits: {cap} games/{'trial' if bot.state.get('trial') else 'day'}, {gap}s gap, {tick}s tick; temperature {TEMPERATURE}")
+    if dry_run:
+        return {"username": bot.username, "games_today": games_today(bot.state, time.time()),
+                "cap": cap, "gap_seconds": gap, "tick_seconds": tick,
+                "temperature": TEMPERATURE, "trial": bot.state.get("trial"),
+                "bullet_trial": bot.state.get("bullet_trial"),
+                "ongoing_games": [game["gameId"] for game in ongoing]}
+    bot._save_progress()
+    for game in ongoing:
+        bot.start_game(game["gameId"], game.get("speed", "rapid"))
 
     def listen():
         while True:
@@ -276,7 +305,7 @@ def run_bot():
 
     def matchmaking():
         while True:
-            time.sleep(MATCHMAKING_TICK_SECONDS)
+            time.sleep(limits(time.time(), bot.state)[2])
             try:
                 bot.matchmake()
             except Exception as e:
@@ -290,5 +319,21 @@ def run_bot():
 
     deadline = time.time() + RUN_SECONDS
     while time.time() < deadline:
-        time.sleep(30)
+        time.sleep(5)
+        if bot.draining and not bot.active_games:
+            break
+    with bot.lock:
+        bot.draining = True
+        if bot.pending_challenge_id:
+            try:
+                bot._cancel_pending()
+            except berserk.exceptions.ResponseError:
+                pass
+    while bot.active_games:
+        time.sleep(5)
     print("Reached soft deadline, exiting cleanly for the next scheduled run")
+
+
+@app.local_entrypoint()
+def check():
+    print(run_bot.remote(dry_run=True))
