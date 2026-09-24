@@ -932,3 +932,34 @@ Chromium on Modal (software WebGPU) loaded a uniform-logit fake entry, then the 
 L12 INT8 leader. Both sides moved from the Evans Gambit opening, two runner frames were
 active, and Stop ended the match with the controls re-enabled. The match is casual and
 unrated. Harness: `scratch/check_challenge_match.py`, output `output/playwright/challenge-match.*`.
+
+## 2026-09-24 first under-10 MB browser distillation
+
+Distilled the 15M-game L12 float teacher into a 16.3M-parameter tied-embedding
+6x384 decoder, then ran INT4-aware tuning. Final self-contained browser ZIP is
+9,424,814 bytes and passed actual headless checker/play tests and 512-token
+numerical parity. Main training retained ~409M tokens, plus 32.8M QAT tokens.
+B200 at batch64 reached ~370k tokens/s versus H100 ~209k, with the same effective
+batch. Measured function compute was $2.86 plus unmeasured build/startup costs;
+conservative reservations including overhead were $38.41 of the $100 cap.
+
+Size succeeded; teacher strength was not preserved. At temperature 0.2 over 100
+games each against SF1000, teacher scored 89%, pre-QAT float student 23.5%, and
+exported q4 student 28.5%. Q4 scored 9% H2H against the teacher. Max-200-ply draws
+numbered 1/5/13 in those SF runs; no claimed q4-over-float improvement. Most loss
+was already present before quantization. All 400 games replay-audited cleanly.
+Heldout mixed-color positions: q4 1.172% raw-illegal versus teacher 0.098%, and
+66.41% legal top-choice agreement. This is a small runnable baseline, not a
+champion replacement. Recipe, artifact hash, protocol and exact results:
+`experiments/2026-09-24-browser-student-distillation.md`.
+
+## 2026-09-24 challenge page: Elo estimate from leader match
+
+The 10-game match is replaced by "Find my Elo". The entry plays the leader continuously
+through the 200 fixed openings with both colors, until paused. It shows
+Elo = 1766 + 400·log10(s/(1-s)), where s includes two virtual draws. The ± is
+1.96 × the binomial SE on the Elo scale, combined with the leader's ±18. This is a
+browser estimate, not the official BayesElo. The Elo method explanations moved into
+info-icon popovers. The Modal Playwright run (`scratch/check_challenge_match.py`)
+confirmed pass, popover open and close on hover, match start, an estimate after game 1
+(uniform fake entry lost: 1646 ±417), pause, and a switch to human play.

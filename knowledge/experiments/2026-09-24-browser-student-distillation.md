@@ -1,55 +1,115 @@
 # Under-10 MB browser student
 
-Status: training in progress. The size target is verified with synthetic weights;
-playing strength has not yet been measured.
+A working 9,424,814-byte browser decoder was produced, but this first distillation
+recipe loses substantial playing strength. Most of that loss is already present
+in the float student. This is a runnable small baseline, not a replacement champion.
 
-User authorized a $100 Modal budget in the workspace2 workspace (`MODAL_PROFILE=second`).
-All GPU jobs use `training/run_distillation.py`, which reserves the full resource
-limit before launch and retains reservations after failures. The ledger is
-`output/distill-20260924/budget.json`; $10 is held for setup and other overhead.
-Reservations are conservative bounds, not billing receipts.
+## Artifact and inputs
 
-## Inputs and model
+Final ZIP: `output/distill-20260924/student-int4.zip` and
+`/data/checkpoints/distill/student-l6e384/student-int4.zip` on the workspace2 Modal
+volume `nanodanya-data` (`MODAL_PROFILE=second`). SHA-256:
+`22371450dc37ca7887b1ed6f62a8cd52867ed877bdef3b47ef7441b31277d89f`.
 
 Teacher: `/data/checkpoints/plain/games-15m/l12_best.pt`, the 107.6M-parameter
-L12 model underlying the approximately 110 MB browser export. Training uses its
-original checkpoint, not its browser INT8 approximation. This is distinct from
-the larger L16 model selected by the registry's unqualified `plain/games-15m` name.
+L12 underlying the existing browser export. Distillation and teacher benchmarks
+use the original float checkpoint, not its INT8 browser approximation. The
+unqualified registry alias `plain/games-15m` selects a different, larger L16.
 
-Teacher and `datasets/games/15m` copied directly from the original Modal workspace
-into workspace2. No large model or dataset was downloaded locally. Source file hashes
-and sizes are recorded in `output/distill-20260924/assets.json` and on the volume
-at `/data/experiments/distill-20260924/asset-copy.json`.
+Teacher and `datasets/games/15m` were copied directly from the original Modal
+workspace into workspace2. Input hashes are in `output/distill-20260924/assets.json`
+and `/data/experiments/distill-20260924/asset-copy.json`. No large checkpoint or
+dataset was downloaded locally; only the final ZIP and small reports were.
 
-Student: causal decoder, 6 layers, width 384, 6 attention heads, 512-token context,
-14,750 SAN tokens, tied input/output embedding. Total 16,280,832 parameters.
-RMSNorm, Q/K normalization, RoPE, ReLU-squared MLP, logit softcap 15. Every matrix
-uses symmetric signed INT4 with groups of 64 and float32 scales. Self-contained
-ZIP includes weights, vocabulary, RoPE table, and browser inference code.
-Synthetic export: 9,424,814 bytes, below the strict 10,000,000-byte target.
+Student: 6 layers, width 384, 6 attention heads, context 512, 14,750 SAN tokens,
+tied input/output embedding, 16,280,832 parameters. RMSNorm, Q/K normalization,
+RoPE, ReLU-squared MLP, logit softcap 15. Every matrix uses signed symmetric INT4
+in groups of 64 with float32 scales. ZIP includes weights, vocabulary, RoPE table,
+and self-contained WebGPU inference code. Inference only predicts next-token
+scores; the existing game harness applies the legality mask.
 
-## Training recipe
+## Training
 
-Objective: equal weights on recorded next-token cross entropy and teacher KL,
-with temperature 2 and the usual temperature-squared KL scaling. AdamW with
-weight decay 0.1 and gradient clipping at 1.0. BF16 autocast on H100.
+Equal-weight recorded next-token CE and teacher KL at temperature 2, including
+T-squared KL scaling. AdamW, weight decay 0.1, gradient clipping 1.0, BF16 autocast.
 
-- Pilot: 100 updates, batch 32 x 256 tokens, LR 3e-4. Validation CE 5.3380,
-  combined loss 7.8270. Measured function runtime 28.29 seconds (~$0.034 compute,
-  excluding startup/build costs). Steady-state throughput approximately 200k tokens/s.
-- Main: resume pilot; batch 32 x 256 with accumulation 2, total update target
-  25,000, cosine LR 3e-4 to 3e-5, warmup through step 200. Roughly 409M tokens
-  including pilot. Trainer time cap 3,300 seconds; Modal execution timeout 3,600.
-- Quantization-aware tuning and final evaluation: pending.
+- Pilot: 100 updates, batch 32 x 256, LR 3e-4. Validation CE 5.3380.
+- Main: effective batch 64 x 256, total step 25,000, cosine LR 3e-4 to 3e-5,
+  warmup through step 200. Retained lineage: 408,780,800 tokens including pilot.
+  Best step 25,000: combined validation loss 1.5880, CE 2.0408.
+- QAT: initialize fresh optimizer from float best; 2,000 updates, batch 64 x 256,
+  cosine LR 3e-5 to 3e-6, no warmup. Another 32,768,000 tokens. Best step 2,000:
+  combined validation loss 1.6254, CE 2.0694. Initial QAT CE was 2.1709.
 
-Checkpoint selection uses fixed batches in the first half of `val.bin`.
-Final paired evaluation starts at the next complete game after the midpoint,
-using only the second half. No final evaluation scores guide checkpoint selection.
+Main started on H100 at batch 32 with accumulation 2, around 209k tokens/s. At the
+user's request for speed, it resumed from step 13,000 on B200. A 60-second B200
+pilot resumed through 14,117; batch 64 with accumulation 1 then finished at about
+370k steady-state tokens/s (362.5k including validation/startup inside the loop).
+The H100 had reached 13,540 before stopping, so 540 updates were discarded and
+repeated. B200 uses PyTorch 2.7.1+cu128; H100 used 2.5.1+cu124.
 
-## Verification
+Float checkpoints: `/data/checkpoints/distill/student-l6e384/`.
+QAT checkpoints: `/data/checkpoints/distill/student-l6e384-qat/`.
+Each contains `student_best.pt` and resumable `student_latest.pt`.
 
-Local tests passed for student/GPT forward parity, INT4 fake-quant gradients, and
-export/dequantization agreement. Synthetic browser checker passed histories of
-1, 8, 32 and 64 tokens. Browser logits and the dequantized Python model matched
-to approximately 1e-6 on sampled scores. These checks establish implementation
-compatibility, not chess strength. Final artifact and game results are pending.
+## Results
+
+Canonical `games` scaffold, temperature 0.2, seed 5000, alternating model colors,
+100 games per comparison, legal-move masking, no model search. Fairy-Stockfish 14
+binary matches the canonical SHA-256. Maximum 200 plies; capped games count as
+draws. These scores are not the newer tournament Elo protocol or a public rating.
+
+| Model / opponent | Wins | Draws | Losses | Score | Capped draws |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Float L12 teacher / SF1000 | 84 | 10 | 6 | 89.0% | 1 |
+| Pre-QAT float student / SF1000 | 13 | 21 | 66 | 23.5% | 5 |
+| Exported INT4 student / SF1000 | 15 | 27 | 58 | 28.5% | 13 |
+| Exported INT4 student / teacher | 4 | 10 | 86 | 9.0% | 0 |
+
+All 400 recorded games were replayed locally without illegal moves or result
+mismatches. The five-point float/q4 difference is not evidence of improvement:
+100-game samples are noisy, and q4 has eight more capped draws. The major loss
+relative to the teacher is already visible before quantization.
+
+Final heldout report uses 1,024 fixed positions from complete games after the
+midpoint of `val.bin`, at plies 7/8, 19/20, 39/40, 79/80 (both colors). Checkpoint
+selection used only fixed first-half validation batches; no further training
+followed the heldout/game results. An earlier black-only diagnostic remains in
+`heldout.jsonl`; final claims use `heldout-balanced.jsonl`.
+
+| Metric | Teacher | Exported INT4 |
+| --- | ---: | ---: |
+| Human next-move CE | 1.3626 | 1.7766 |
+| Strict raw top-1 illegal | 0.098% | 1.172% |
+| Mean legal probability mass | 98.90% | 95.65% |
+| Teacher legal top-1 agreement | n/a | 66.41% |
+
+The paired evaluator's `student_float` row means the QAT checkpoint's shadow
+weights with fake quantization disabled, not the pre-QAT checkpoint. The separate
+float game run above measures the actual pre-QAT student.
+
+## Browser, budget, reproduction
+
+Actual ZIP passed the headless Chrome challenge checker at 1/8/32/64 tokens and
+played as both colors (`e4`, then `c5` against human `e4`). All 14,750 logits were
+finite at 128 and 512 tokens; maximum difference from Python's dequantized model
+was 1.24e-5. Reports and screenshots are under `output/distill-20260924/`.
+
+Measured Modal function compute: $2.8586, excluding startup, image builds and
+storage. Conservative reservations total $38.41 including $10 for overhead,
+within the authorized $100. Full reservations were retained after early stops
+and failures. This is not a billing invoice. All experiment Modal apps are
+stopped and automation browser sessions closed; local preview remains available.
+
+Setup fixes: CPU asset copy initially retried a conditional-secret dependency
+mismatch; B200 image build first hit a concurrent file edit; the first native
+evaluator lacked `requests`. The launcher now snapshots source before upload,
+includes pinned requests, caps resources and wall time, and logs reservations
+and receipts in `output/distill-20260924/budget.json`.
+
+One-command fresh reproduction is documented in `training/DISTILLATION.md`:
+`uv run python training/distill_pipeline.py --run-name student-l6e384-repro --profile second`.
+It uses B200 by default and the same shared budget ledger. It downloads only the
+ZIP and five JSONL reports. Native evaluation uses dequantized weights from the
+actual ZIP; browser inference is verified separately. Full machine-readable
+results: `output/distill-20260924/run-report.json`.

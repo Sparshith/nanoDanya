@@ -1,6 +1,6 @@
 # nanoDanya State
 
-Last updated: 2026-09-19
+Last updated: 2026-09-24
 
 The project asks how much chess (legal continuation, tactics, termination) a pure
 next-token model internalizes from data and objectives. Runtime scaffolds (legality
@@ -52,6 +52,14 @@ Scale under plain CE is the lever; data source and architecture are second-order
   ([API comparison](experiments/2026-05-27-api-model-legality.md)).
 - Errors, both nanoDanya's and the API models', concentrate in middlegame and
   endgame; openings are near-perfect for everyone.
+
+- **Under-10 MB browser baseline works, but loses strength (2026-09-24).** A
+  16.3M-parameter student distilled from the L12 exports to a 9.42 MB INT4 ZIP and
+  passes browser checker/play tests. In 100-game temperature-0.2 SF1000 tests,
+  teacher/float-student/q4-student scored 89%/23.5%/28.5%; q4 scored 9% H2H
+  against the teacher. Most loss predates quantization. These are masked game
+  scores, not tournament Elo. No champion replacement
+  ([experiment](experiments/2026-09-24-browser-student-distillation.md)).
 
 Settled negative results:
 
