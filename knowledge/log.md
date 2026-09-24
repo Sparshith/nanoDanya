@@ -963,3 +963,16 @@ browser estimate, not the official BayesElo. The Elo method explanations moved i
 info-icon popovers. The Modal Playwright run (`scratch/check_challenge_match.py`)
 confirmed pass, popover open and close on hover, match start, an estimate after game 1
 (uniform fake entry lost: 1646 ±417), pause, and a switch to human play.
+
+## 2026-09-24 INT4 student Bayesian Elo
+
+Rated the actual 9.42 MB export on the canonical tournament protocol: 200 fixed
+openings, both colors, greedy play and adjudication, 400 games each against
+sf1000/sf1500/sf2000. Scores were 52.875%/23.0%/9.375%. Joint BayesElo fit with
+the existing pool gives **1260 +17/-18** (95% interval 1242–1277), anchored at
+sf1500=1500. Existing L12 INT8 CPU baseline is 1768 +19/-19 in the same fit.
+All 1,200 new games replay-audited; none unscored/capped/context-limited. This
+is the internal tournament scale, not the earlier temperature-0.2 game scaffold.
+The rating run added $0.54 measured compute, bringing the experiment to $3.40
+before build/startup overhead and $40.92 in conservative reservations. Details:
+`experiments/2026-09-24-browser-student-distillation.md` (Bayesian Elo follow-up).

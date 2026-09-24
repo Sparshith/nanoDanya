@@ -113,3 +113,52 @@ It uses B200 by default and the same shared budget ledger. It downloads only the
 ZIP and five JSONL reports. Native evaluation uses dequantized weights from the
 actual ZIP; browser inference is verified separately. Full machine-readable
 results: `output/distill-20260924/run-report.json`.
+
+## Bayesian Elo follow-up
+
+The exported INT4 student rates **1260 +17/-18** (95% interval 1242–1277) after
+1,200 games on the canonical opening-based tournament protocol. This is the
+internal benchmark scale with sf1500 fixed at 1500, not a human rating.
+
+The same 200 fixed openings were played with both colors against sf1000,
+sf1500 and sf2000: 400 games per opponent. Greedy legal-masked model play,
+Fairy-Stockfish 14 at depth 1, 10 ms full-strength adjudication at 1300 cp or mate,
+draw claims enabled, maximum 400 plies. This protocol differs from the earlier
+100-game tests above, so their scores are not interchangeable.
+
+| Opponent | Wins | Draws | Losses | Student score |
+| --- | ---: | ---: | ---: | ---: |
+| sf1000 | 204 | 15 | 181 | 52.875% |
+| sf1500 | 79 | 26 | 295 | 23.0% |
+| sf2000 | 33 | 9 | 358 | 9.375% |
+
+All 1,200 games replay-audited cleanly. No unscored, capped or context-limit games:
+1,150 adjudications, 49 threefold repetitions, one insufficient-material draw.
+Four subprocesses on one budgeted B200 split the openings into disjoint groups
+of 50 (`training/distill_tournament.py`). The artifact was loaded directly from
+its ZIP as dequantized float32 weights, with browser numerical parity established
+above. Openings SHA-256:
+`c08db594e480821a1d5335c5344dfba12b075fc9e1f3d3444a4e4ef9724e5db8`.
+
+BayesElo `mm`, `exactdist`, then `offset 1500 sf1500` fits these games together
+with the existing 2,400 pool/baseline games. The original fit was reproduced
+exactly before adding the student. The joint 3,600-game fit is:
+
+| Player | Elo | 95% error | Games |
+| --- | ---: | ---: | ---: |
+| Existing L12 INT8 CPU baseline | 1768 | +19/-19 | 1200 |
+| sf2000 | 1667 | +16/-16 | 1600 |
+| sf1500 anchor | 1500 | fixed reference | 1600 |
+| Exported INT4 student | 1260 | +17/-18 | 1200 |
+| sf1000 | 1240 | +17/-17 | 1600 |
+
+The baseline shifts from 1766 to 1768 because the pool is refitted jointly.
+BayesElo source tarball matches canonical SHA-256
+`95f3d32381932ba9ccd1ab221ff33273cd3e48abedcfeba4c4f3f5a9b303a2a4`.
+
+Reports: `output/distill-20260924/student-bayeselo.jsonl`,
+`tournament-summary.json`, and `bayeselo-games/student-int4-1200.jsonl`.
+Volume games: `/data/checkpoints/distill/student-l6e384/tournament-1200.jsonl`.
+This follow-up added $0.5412 in measured function compute; experiment total is
+now $3.3998 plus build/startup/storage overhead. Cumulative reservations are
+$40.92 including the original $10 overhead allocation, within the $100 cap.
