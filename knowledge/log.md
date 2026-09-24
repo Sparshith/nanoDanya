@@ -998,3 +998,26 @@ progress bar. The button reads Start, Pause, Resume, then "Play 20 more". Rules 
 below the board. The Modal Playwright rerun confirmed the file row, popover, match start
 with labels, the result strip with its hover title, progress, the last-move highlight,
 the tab switch to human play (e4 answered), and the return to a paused match.
+
+## 2026-09-24 challenge moved to the repo root, entries bring their own vocabulary
+
+`browser/challenge/` became `challenge/` with three folders a challenger can read
+top to bottom: `starter/` (stub entry, default vocabulary, tokenizer example, pack
+script, README), `baseline/` (the INT4 model's inference code and exporter, formerly
+`browser/student/`), and `dashboard/` (the checker page, its own server and esbuild).
+The full contract for agents is `challenge/llms.txt`; the page's "Copy prompt for your
+agent" button copies five lines that point at it on GitHub and ask the agent to set up
+the project from `starter/` and stop before any model work.
+
+The contract no longer fixes the vocabulary. An entry returns its own list of SAN
+strings (must contain `<bos>`, may contain `<unk>`); the page encodes the board history
+with each model's list and picks the highest-scoring legal move from that list. A move a
+model cannot encode forfeits the game in a match. The shared `runtime.BrowserEngine`
+hook was dropped from the contract. Verified with a 5,674-token suffix-free stub and
+with the starter ZIP: check passes, play and undo work, no console errors.
+
+Deleted the September 21 ONNX browser prototype (`browser/index.html`, `app.js`,
+`export_model.py`, `head_to_head.py`, `benchmark_onnx/`, `tests/test_browser_h2h.py`)
+and the 120 MB int8 challenge ZIP; its numbers stay in
+`experiments/2026-09-21-int8-browser-models.md`. `browser/play/` (the deployed play
+site), `browser/assets/` and `browser/results/` are untouched.
