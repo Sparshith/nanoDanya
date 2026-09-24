@@ -976,3 +976,12 @@ is the internal tournament scale, not the earlier temperature-0.2 game scaffold.
 The rating run added $0.54 measured compute, bringing the experiment to $3.40
 before build/startup overhead and $40.92 in conservative reservations. Details:
 `experiments/2026-09-24-browser-student-distillation.md` (Bayesian Elo follow-up).
+
+## 2026-09-24 challenge page: estimate removed, head-to-head only
+
+The browser Elo estimate is removed. A model far from the baseline gets wide intervals
+(139 games at a 7.8% score gave ±108). No weaker same-architecture checkpoints exist
+for a ladder. The card now shows a plain head-to-head score against the baseline, with
+wins, draws and losses. The leaderboard Elo stays the Modal BayesElo number, and a new
+way to rate uploads is still open. The Modal Playwright rerun passed: check, popover,
+match start, score after game 1, pause, and a switch to human play.

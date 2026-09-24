@@ -58,7 +58,9 @@ Scale under plain CE is the lever; data source and architecture are second-order
   passes browser checker/play tests. In 100-game temperature-0.2 SF1000 tests,
   teacher/float-student/q4-student scored 89%/23.5%/28.5%; q4 scored 9% H2H
   against the teacher. Most loss predates quantization. These are masked game
-  scores, not tournament Elo. No champion replacement
+  scores, not tournament Elo. A separate 1,200-game tournament measured the INT4
+  student at **1260 BayesElo (+17/-18)** versus **1768** for the existing INT8
+  baseline in the same fit (SF1500 anchored at 1500). No champion replacement
   ([experiment](experiments/2026-09-24-browser-student-distillation.md)).
 
 Settled negative results:
