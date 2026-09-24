@@ -162,3 +162,20 @@ Volume games: `/data/checkpoints/distill/student-l6e384/tournament-1200.jsonl`.
 This follow-up added $0.5412 in measured function compute; experiment total is
 now $3.3998 plus build/startup/storage overhead. Cumulative reservations are
 $40.92 including the original $10 overhead allocation, within the $100 cap.
+
+## Puzzle evaluation
+
+The exact 9,424,814-byte INT4 ZIP solved **1,136 / 8,800 puzzles (12.9%)**
+completely and chose the correct first move on **2,670 / 8,800 (30.3%)**.
+No puzzles were skipped. Puzzle IDs, source game IDs, ratings, depths, and order
+match the previous leaderboard evaluation exactly: 400 puzzles per 100-point
+rating bin from 600 inclusive to 2800 exclusive. The canonical benchmark uses
+greedy legal selection and requires the full solution, allowing alternative mate.
+
+`training/distill_puzzles.py` prepares that sample from the original raw volume
+and evaluates the exported ZIP with `benchmark/run.py puzzles`. A CPU run in the
+source workspace extracted the sample; evaluation ran on a B200 in workspace2.
+Results: `output/distill-20260924/puzzles-8800.jsonl` (per-puzzle records) and
+`puzzles-summary.json` (audit and costs). The challenge page now displays 12.9%.
+Incremental estimated compute was $0.081; cumulative measured experiment compute
+is $3.481, excluding startup/build overhead. Both jobs completed.
