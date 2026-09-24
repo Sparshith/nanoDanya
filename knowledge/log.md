@@ -896,3 +896,18 @@ were never committed and are now removed. The two Sep 19 runs (coverage,
 oversampling) both ended with no established strength gain; results and the exact
 protocol are in `experiments/2026-09-19-mate-threat-*.md`. Dataset
 `own-games/mate-threats-20260919` and both checkpoints stay on the volume.
+
+## 2026-09-24 browser challenge entry checker
+
+Added a local ZIP compatibility checker with a temporary 150,000,000-byte cap.
+The packaged existing L12 INT8 export is 119,742,259 bytes. Headless Chromium on
+Modal passed four history checks (1, 8, 32, 64 tokens), played `1. e4 c5`, undid
+the turn, and opened with `1. e4` when playing White. GPU execution used software
+WebGPU; timings are not measurements of the user's Mac. Custom inference runs
+in a worker on a separate origin with network access blocked by CSP. Browser
+checks also rejected oversized ZIPs, wrong-length and non-finite logits, verified
+report download and stopping a pending prediction, and showed no overflow at
+390px width. Twelve local archive/downloader tests passed. Compatibility does
+not establish decoder eligibility or playing strength. Logs and screenshots:
+`output/playwright/challenge-{browser,edges}.{txt,png}`; disposable harness:
+`scratch/check_challenge_browser.py`. No public deployment or model promotion.
