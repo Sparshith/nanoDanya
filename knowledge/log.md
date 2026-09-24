@@ -922,3 +922,13 @@ games. The depth-1 pool compresses: sf2000 1663, sf1000 1242. The same model sco
 vs sf1500 under the old temp-0.8/no-adjudication protocol and 78% here, so the old
 numbers are not comparable. The challenge leaderboard now shows this Elo. Details:
 experiments/2026-09-24-tournament-elo.md.
+
+## 2026-09-24 challenge page: match vs leader
+
+The checker page can now play a 10-game match (5 fixed openings from
+`benchmark/openings.tsv`, both colors, greedy, 300-ply cap as draw) between the
+uploaded entry and the leader ZIP, with each model in its own sandboxed runner. Headless
+Chromium on Modal (software WebGPU) loaded a uniform-logit fake entry, then the real
+L12 INT8 leader. Both sides moved from the Evans Gambit opening, two runner frames were
+active, and Stop ended the match with the controls re-enabled. The match is casual and
+unrated. Harness: `scratch/check_challenge_match.py`, output `output/playwright/challenge-match.*`.
