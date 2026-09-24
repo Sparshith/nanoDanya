@@ -94,6 +94,12 @@ linearly readable from hidden states and improve with data
 - **Masked/game results** measure model plus harness, never raw legality.
 - H2H at temperature 0 is degenerate (deterministic games collapse); use temp 0.8.
 - sf500 is saturated for 5M+ models; discriminate at sf1000/sf1500.
+- **Tournament Elo** (challenge leaderboard): BayesElo over games from 200 fixed
+  openings with greedy play and 1300 cp adjudication, sf1500 depth 1 pinned at 1500.
+  Temperature 0 is fine here because the openings supply variety. The 15M L12 INT8
+  CPU export = 1766 +18/-17
+  ([tournament Elo](experiments/2026-09-24-tournament-elo.md)). Not comparable to
+  temp-0.8 sf-score runs.
 - Benchmark files are only comparable when protocol matches. Checkpoints with
   identical arch can be incompatible if their `meta.pkl` tokenizer contracts differ.
   Checkpoint-selection metric matters: `*_best_move.pt` is often more honest than

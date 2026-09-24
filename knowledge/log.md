@@ -911,3 +911,14 @@ report download and stopping a pending prediction, and showed no overflow at
 not establish decoder eligibility or playing strength. Logs and screenshots:
 `output/playwright/challenge-{browser,edges}.{txt,png}`; disposable harness:
 `scratch/check_challenge_browser.py`. No public deployment or model promotion.
+
+## 2026-09-24 tournament Elo, sf1500 anchor
+
+Added DeepMind-style tournament Elo: `benchmark/run.py tournament` and `elo`, with Modal
+modes of the same names. It uses 200 fixed CC0 openings with both colors, greedy
+play, and 1300 cp adjudication, then a BayesElo fit with sf1500 (Fairy-Stockfish 14,
+depth 1) pinned at 1500. The 15M L12 INT8 CPU export rates **1766 +18/-17** over 1,200
+games. The depth-1 pool compresses: sf2000 1663, sf1000 1242. The same model scored 44%
+vs sf1500 under the old temp-0.8/no-adjudication protocol and 78% here, so the old
+numbers are not comparable. The challenge leaderboard now shows this Elo. Details:
+experiments/2026-09-24-tournament-elo.md.
