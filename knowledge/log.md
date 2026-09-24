@@ -985,3 +985,16 @@ for a ladder. The card now shows a plain head-to-head score against the baseline
 wins, draws and losses. The leaderboard Elo stays the Modal BayesElo number, and a new
 way to rate uploads is still open. The Modal Playwright rerun passed: check, popover,
 match start, score after game 1, pause, and a switch to human play.
+
+## 2026-09-24 challenge page: match and play split into tabs
+
+The tester and board are reorganized. After a pass, the drop zone collapses to a file row
+with a Replace link. The match summary shows the score, a strip of result squares (the
+hover gives the opening and the end reason: checkmate, repetition, stalemate, 300-ply cap
+and so on) and win/draw/loss counts. Metrics and the JSON report sit under a Details
+disclosure. The board has Match and Play-yourself tabs, name bars with scores above and
+below it, a last-move highlight, and a 20-game match (10 openings × 2 colors) with a
+progress bar. The button reads Start, Pause, Resume, then "Play 20 more". Rules moved
+below the board. The Modal Playwright rerun confirmed the file row, popover, match start
+with labels, the result strip with its hover title, progress, the last-move highlight,
+the tab switch to human play (e4 answered), and the return to a paused match.
