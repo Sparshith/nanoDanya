@@ -1021,3 +1021,13 @@ Deleted the September 21 ONNX browser prototype (`browser/index.html`, `app.js`,
 and the 120 MB int8 challenge ZIP; its numbers stay in
 `experiments/2026-09-21-int8-browser-models.md`. `browser/play/` (the deployed play
 site), `browser/assets/` and `browser/results/` are untouched.
+
+## 2026-09-26 browser play site deleted
+
+`browser/` is gone entirely: the Cloudflare Workers play site (`browser/play/`, its
+wrangler config and `dist/` build), the 1.6 GB of local model exports in
+`browser/assets/`, and the September 21 measurement files in `browser/results/`. The
+numbers those files backed remain in `experiments/2026-09-21-int8-browser-models.md`.
+The only browser code left is `challenge/`. The deployed worker at
+nanodanya-play.sparshithsampath.workers.dev was not removed from Cloudflare by this
+change; it needs `wrangler delete` or the Cloudflare dashboard.
