@@ -1153,3 +1153,27 @@ final H2H versus control and initial checkpoint. All data and training on Modal.
 Cloud initialization verified checkpoint, engine, openings, and source hashes.
 Detached app ap-wbFpKcDc4QQHVTWglHPWDs reached probe_collection. Results pending.
 Protocol: experiments/2026-09-28-iterative-sf2000-rl.md. No commits or deployment.
+
+## 2026-09-28 iterative RL moved to workspace2
+
+User requested workspace2 instead of sparshithsampath. Stopped the original detached
+app ap-wbFpKcDc4QQHVTWglHPWDs and verified zero remaining tasks. No RL training had
+started; 200 held-out baseline games and candidate preparation were complete.
+Copied 12 files directly between the Modal workspaces, including the 927,112,254-byte
+initial checkpoint with its original verified SHA256. No model or dataset was
+downloaded locally. Transfer app ap-PXos9pkvN23Gj4BpzgR28H completed and stopped.
+Replacement detached run ap-KNUPguFgXEpKJ7IJljIQFU uses workspace2 (profile second),
+with the identical frozen protocol and source hashes. Its runtime is building.
+
+## 2026-09-28 starter gets a local checker
+
+`challenge/starter/check.py` runs the page's three checks with ONNX Runtime on the
+laptop (size, load + metadata, finite logits on the 0/7/31/63-move prefixes of the
+same test game the page uses) and then plays N games against `baseline.onnx` (exported on
+demand) from the page's first ten openings, both colors, 300-ply cap, greedy legal move
+from each model's own vocabulary. Baseline vs itself: 2-2 in 4 games, 8 ms per move.
+The page is now only for the file a person wants to submit. python-chess 1.11.2 joins the
+starter requirements.
+workspace2 initialization passed all checkpoint, engine, opening-book, protocol, and
+source-hash checks. The replacement job reused all four saved baseline game shards
+(200 games) and continued to grading. Migration complete, ten-round run active.

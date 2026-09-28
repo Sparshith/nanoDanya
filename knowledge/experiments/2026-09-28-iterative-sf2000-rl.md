@@ -35,7 +35,8 @@ initial, plus 500 SF2000 games for each of initial, refresh, and fixed. All fina
 games use held-out openings and temperature 0.2. Final uncertainty should bootstrap
 whole openings, retaining both colors and repetitions together.
 
-All model weights, datasets, and training remain on Modal volume `nanodanya-data`
+All model weights, datasets, and training remain on the workspace2 Modal workspace
+(local profile `second`), volume `nanodanya-data`
 under `experiments/iterative-sf2000-20260928/`. The volume stores the frozen protocol,
 source hashes, per-game records, graded datasets, optimizer resumes, per-round
 checkpoints and probe reports. Small local receipts and the frozen source archive
@@ -47,13 +48,20 @@ Implementation: `scratch/modal_iterative_policy.py` orchestrates the existing
 and three new tests pass (opening isolation and color balance, replay rejection of
 corrupt results, and identical next optimizer update after restoring state).
 An eight-game cloud smoke test passed replay audits: four games per color, eight
-unique games, all normal terminal outcomes. Main detached app:
-https://modal.com/apps/sparshithsampath/main/ap-wbFpKcDc4QQHVTWglHPWDs .
+unique games, all normal terminal outcomes. The original detached app
+`ap-wbFpKcDc4QQHVTWglHPWDs` was stopped at the user's request to use workspace2.
+It completed 200 probe games and candidate preparation, with zero RL rounds.
+Twelve files, including the exact initial checkpoint, protocol, game receipts,
+and candidate data, were copied directly between cloud workspaces. The initial
+checkpoint's checksum matches exactly; no models or datasets were downloaded
+locally. Transfer receipt: `data/probes/iterative-sf2000-20260928/workspace-transfer.json`.
+Replacement detached app: https://modal.com/apps/workspace2/main/ap-KNUPguFgXEpKJ7IJljIQFU .
+workspace2 initialization passed and reused all four saved probe game shards (200 games).
 Initial checkpoint, engine binary, opening book, and all frozen source hashes
 passed cloud validation. The first observed stage was `probe_collection`.
 
 Launch command:
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 MODAL_PROFILE=sparshithsampath MODAL_GPU=H100 MODAL_CPU=4 MODAL_MEMORY=32768 MODAL_TIMEOUT=7200 uv run --with modal==1.3.5 python -m modal run --detach scratch/modal_iterative_policy.py::run_loop
+PYTHONDONTWRITEBYTECODE=1 MODAL_PROFILE=second MODAL_GPU=H100 MODAL_CPU=4 MODAL_MEMORY=32768 MODAL_TIMEOUT=7200 uv run --with modal==1.3.5 python -m modal run --detach scratch/modal_iterative_policy.py::run_loop
 ```
