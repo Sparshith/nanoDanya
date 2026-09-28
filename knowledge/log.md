@@ -1031,3 +1031,34 @@ numbers those files backed remain in `experiments/2026-09-21-int8-browser-models
 The only browser code left is `challenge/`. The deployed worker at
 nanodanya-play.sparshithsampath.workers.dev was not removed from Cloudflare by this
 change; it needs `wrangler delete` or the Cloudflare dashboard.
+
+## 2026-09-28 challenge entries are one ONNX file; no more custom JavaScript
+
+Entry contract v2. An entry is a single `model.onnx` at most 10 MB, standard ops,
+opset 17+, one int64 input `[1, tokens]`, one float32 logits output, with the SAN
+vocabulary, context length and name in `metadata_props`. The page reads the metadata
+with a 40-line protobuf scanner, runs the model with ONNX Runtime Web 1.30 (wasm) in a
+plain worker, and picks the best legal move from the entry's own list. The sandboxed
+cross-origin frame, the ZIP reader and the per-entry `entry.js` adapter are deleted;
+nobody executes an entrant's code any more, only their graph.
+
+`challenge/starter/` is now `model.py` (2-layer, width-96 PyTorch transformer, tied
+embeddings, 6.9 MB fp32, 2.5 MB with `--int8`), `export.py` (torch.onnx legacy
+exporter, `do_constant_folding=False` so the tied embedding is stored once),
+`tokenize_game.py`, `vocabulary.json`, `requirements.txt`. A file named `tokenize.py`
+shadowed the stdlib module and broke every import; hence the rename.
+
+`challenge/baseline/export.py` builds the baseline's ONNX graph by hand: each matrix as
+packed uint8 nibbles plus fp32 scales per 64 values, unpacked with BitwiseAnd, BitShift,
+Cast, Where, Mul and Reshape; RMSNorm, RoPE with bf16-rounded tables, causal softmax
+attention, relu², softcap 15. 9,473,041 bytes for 16,280,832 parameters. Matches the
+PyTorch StudentGPT within 2e-3 on 1/8/64-token inputs (test_export.py). It reads
+either a checkpoint or the legacy INT4 ZIP. `load_quantized_model` now rebuilds the
+PyTorch model from the ONNX initializers, and `inference/onnx_policy.py` runs any
+contract-v2 file through the tournament's existing `last_logits` interface, so the
+offline puzzles and Stockfish games score the same file the browser tested.
+
+Headless Chrome drive: starter file passes all checks in 0.3 s, 3 ms per move at 64
+tokens on CPU; play and undo work; a 20-game match against the baseline runs on CPU
+(2 games in 2 s, both baseline wins by mate, as expected for random weights); no console
+errors. Dev deps added: onnx 1.23.0, onnxruntime 1.23.2 (last line with Python 3.10 wheels).
