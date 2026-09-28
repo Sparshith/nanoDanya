@@ -24,6 +24,10 @@ Volume layout: `puzzles_raw/` (main dataset: `puzzle_games_ndjson.txt`, 3.2M Lic
 
 Local `data/` holds only small working files; it is gitignored and not the source of truth.
 
+## Challenge
+
+`challenge/` is the public entry kit: `starter/` (copy this to enter: the baseline model in PyTorch, `baseline.pt` weights downloaded from a GitHub release, `export.py` with fp32/int8/int4, `check.py` = the page's checks plus a local match), `baseline/` (the export test), `llms.txt` (the contract agents read). The checker page is `dashboard/` at the repo root, gitignored for now (`npm ci`, `python3 build.py`, `python3 pack.py`, `python3 serve.py`; `python3 deploy.py` copies the built page into `../blog/nd-challenge` for www.sparshith.com/nd-challenge). An entry is one ONNX file under 10 MB with the SAN vocabulary in its metadata; the page runs it with ONNX Runtime Web and picks the best legal move. Offline scoring loads the same file through `inference/onnx_policy.py`.
+
 ## Knowledge
 
 `knowledge/` is the project research memory: `STATE.md` (current story, champion model, open questions), `log.md` (append-only dated entries), `experiments/` (one file per significant run or benchmark). For questions about project state or past results, read `STATE.md` first.

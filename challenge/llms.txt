@@ -1,0 +1,56 @@
+# nanoDanya challenge: chess in 10 MB, no search
+
+Train a model that predicts the next chess move from the moves so far. Export it as one ONNX file under 10 MB. The challenge page runs it in the browser and the maintainers score it offline. No search, no engine, no hand-written chess rules at inference time. Training is unrestricted. Beat the baseline: 1260 Elo, 12.9% puzzles solved, 9.63 MB. The starter is the baseline itself, so you begin from a model that already plays.
+
+- Repository: https://github.com/Sparshith/nanoDanya (this file is challenge/llms.txt)
+- Starter (the baseline model in PyTorch, its weights, the export script, a local checker, vocabulary, tokenizer example, README): https://github.com/Sparshith/nanoDanya/blob/main/challenge/starter
+- Baseline weights (9.2 MB, downloaded by export.py): https://github.com/Sparshith/nanoDanya/releases/download/baseline-v1/baseline.pt
+- Baseline ONNX file (9.63 MB): the "Grab the baseline" link on the challenge page
+- Public test game (the four check prefixes come from it): `TEST_GAME` in starter/check.py
+
+## Tokens
+
+One token per move in standard algebraic notation (SAN), for example `e4`, `Nf3`, `O-O`, `exd5`, `Qxf7#`, `e8=Q`. The first token of every game is `<bos>`. Example history: `<bos> d4 Nf6 c4 g6 Nc3 Bg7 e3`.
+
+The token list (vocabulary) is yours to choose. It travels inside the ONNX file as metadata, and the page uses it to translate between moves and your token ids in both directions. Rules for the list:
+
+- It must contain `<bos>`. It may contain `<unk>`; moves missing from your list then map to `<unk>` on input.
+- Check and mate suffixes are optional. If your list has `Nf3` but not `Nf3+`, the page uses `Nf3` for both.
+- When the model moves, the page looks at every legal move, finds the ids for each in your list, and plays the legal move with the highest logit. A legal move that is not in your list can never be played.
+- If a game contains a move that your list cannot encode and you have no `<unk>`, your model forfeits that game.
+
+The default list is `starter/vocabulary.json`: 14,750 tokens, `<bos>` at 0, `<eos>` at 1, then SAN moves with suffixes, sorted. It was built from 3.2M Lichess games with a frequency cutoff, so a few very rare moves are missing. Use it as is, or make your own. The baseline uses the default list.
+
+## The ONNX file
+
+- At most 10,000,000 bytes. Nothing may be downloaded at run time.
+- One input: int64 tensor of shape [1, tokens], the token ids so far starting with `<bos>`. Any input name.
+- One output: float32 logits, shape [1, vocabulary] or [1, tokens, vocabulary]. The page takes the last position. One score per token in your list.
+- Standard ONNX ops only, opset 17 or newer. No custom operator domains. ONNX Runtime Web must be able to run it on CPU.
+- Metadata (`metadata_props`): `vocabulary`, a JSON array of your token strings, required. `context_length`, the most tokens you accept, from 64 to 4096, default 512. `name`, shown on the page.
+
+`starter/export.py` writes all of this for you from PyTorch weights. Precision is the entrant's lever: plain export is fp32 (fits about 2.5M weights), `--int8` is 8-bit matrices (about 10M), `--int4` is 4-bit matrices in groups of 64 unpacked with standard ops (about 20M). The baseline has 16M weights and needs `--int4`.
+
+## Project setup
+
+When asked to set up a project, do only this. Do not train or design a model yet.
+
+1. Copy `challenge/starter/` into a new folder: `model.py`, `export.py`, `check.py`, `tokenize_game.py`, `vocabulary.json`, `requirements.txt`, `README.md`. Install the requirements.
+2. Run `python3 export.py --int4`. It downloads the baseline weights (9.2 MB) once, writes `model.onnx`, and prints its size. Confirm it prints OK.
+3. Run `python3 check.py --games 2`. It runs the page's checks locally and plays two games against the baseline. Confirm every line says OK.
+4. Add an empty `train/` folder with a short README that repeats the token format and the 10 MB budget.
+5. Stop. Show the folder layout and how to run export and check. Wait for the person to test `model.onnx` on the challenge page before any model work.
+
+## Checks
+
+`starter/check.py` runs the same checks on your machine with ONNX Runtime, then plays a quick match against the baseline. Use it while you iterate; go to the page for the file you want to submit.
+
+Drop the ONNX file on the challenge page. It checks the size, reads the metadata, loads the model with ONNX Runtime Web, and runs four game prefixes of 0, 7, 31 and 63 moves encoded with your list. Each must return finite logits of the right shape. Then you can play the model or run a 20-game match against the baseline. Everything runs in the visitor's browser. Nothing is uploaded.
+
+## Leaderboard rules
+
+Elo comes from 1,200 games against Stockfish at three strengths from 200 fixed openings, rated with BayesElo with Stockfish 1500 at depth 1 fixed at 1500. Puzzles are 8,800 Lichess puzzles rated 600 to 2800; a solve means every move of the solution. Both run offline on the same ONNX file you tested. Passing the check is not eligibility. Leaderboard entries get code review and the offline evaluation. The model must be a causal next-token decoder.
+
+## Submit
+
+After the check passes, the page's Submit button gives a prompt for a coding agent. It hosts the exact file, links the training and export source at a commit, and opens a GitHub issue with the file's hash and the check report.
