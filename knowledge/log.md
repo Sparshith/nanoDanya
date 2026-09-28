@@ -1201,3 +1201,11 @@ isolation headers ORT runs single-threaded: 41 ms/move at 64 tokens vs 33 locall
 Headless drive from the blog root passed check, play and a 2-game match. Bundles and
 `ort/` are gitignored in nanoDanya; the blog holds the built copy. The page carries the
 blog's Cloudflare analytics loader and its header links to the nanoDanya post.
+Recovery verified: round one reached optimizer step 50/300 on H100, finite reward
+0.71538, KL 0.00700, gradient norm 0.39174. Detached ten-round job is now training.
+
+## 2026-09-28 dashboard moved out of challenge/
+
+`challenge/dashboard/` is now `dashboard/` at the repo root, so `challenge/` holds only what an
+entrant needs (starter, baseline test, llms.txt, README). Paths in pack.py, deploy.py, the
+openings import, the metadata test and the baseline test follow.

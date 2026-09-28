@@ -65,6 +65,8 @@ The original protocol and source archive are preserved as `*-before-runtime-fix.
 `runtime-fix.json` records both sets of hashes. RL settings and datasets are unchanged.
 Sixteen focused tests pass after the fix. Recovery app:
 https://modal.com/apps/workspace2/main/ap-Yq4Nu4itS2Qy1YGWf6iTnP .
+Recovery confirmed by round-one optimizer step 50/300, with finite reward, KL,
+and gradient norm. The detached ten-round job is training.
 Initial checkpoint, engine binary, opening book, and all frozen source hashes
 passed cloud validation. The first observed stage was `probe_collection`.
 
