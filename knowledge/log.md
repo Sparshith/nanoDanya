@@ -1140,3 +1140,16 @@ now carries `config` so `inference/onnx_policy.load_torch_from_onnx` can rebuild
 PyTorch model for the batched benchmarks; `OnnxPolicy` serves the tournament path.
 `challenge/baseline/` is down to the test and a README. Page drive with the starter's
 export: check 0.6 s, 33 ms/move at 64 tokens on CPU, 2 draws vs the served baseline.
+
+## 2026-09-28 iterative SF2000 RL launched
+
+User selected 1,000 games per round for a ten-round refresh experiment. Frozen
+protocol: 100 training openings, both colors, collection temperature 0.8,
+300 exact-reward RL updates per round, initial exact-10k checkpoint as fixed KL
+reference. Round one shared with a fixed-archive control, 3,000 updates per arm.
+Separate 50-opening evaluation at temperature 0.2, frozen position probe, and
+final H2H versus control and initial checkpoint. All data and training on Modal.
+16 focused tests passed; eight-game cloud smoke passed replay and outcome audits.
+Cloud initialization verified checkpoint, engine, openings, and source hashes.
+Detached app ap-wbFpKcDc4QQHVTWglHPWDs reached probe_collection. Results pending.
+Protocol: experiments/2026-09-28-iterative-sf2000-rl.md. No commits or deployment.

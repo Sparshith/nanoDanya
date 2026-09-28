@@ -14,6 +14,12 @@ https://www.sparshith.com/posts/nanodanya.html (numbers verified against
 
 ## Current story
 
+- **Iterative SF2000 RL running (2026-09-28).** Ten rounds of 1,000 games from
+  varied openings and 300 RL updates, starting from exact-10k. Round one is shared
+  with an equal-update fixed-data control; subsequent refresh rounds use the
+  latest policy. Evaluation openings are held out. No results or promotion yet
+  ([protocol](experiments/2026-09-28-iterative-sf2000-rl.md)).
+
 Scale under plain CE is the lever; data source and architecture are second-order
 ([scale matrix](experiments/2026-05-scale-matrix-h2h-and-stockfish.md)):
 
