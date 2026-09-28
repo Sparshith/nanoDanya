@@ -6,7 +6,7 @@ reviewing the RL experiment history. No retraining or deployment is part of this
 ## Fixed protocol
 
 - Candidate: `/data/checkpoints/grpo/own-games-exact-10k-20260918/best.pt`, step 5,500.
-- Opponent: `/data/checkpoints/plain/games-15m/l16_best.pt`, step 200,000.
+- Opponent: `/data/checkpoints/plain/games-15m/l16_best.pt`, saved step 148,400.
 - Exactly 1,000 fresh H2H games, 500 per candidate color, initial chess position.
 - Both models use temperature 0.2, legal masking, EOS disabled, no KV cache,
   batch size 64, 200-ply cap. Eight 125-game shards on A10G, two CPU cores each.
@@ -26,7 +26,11 @@ advantage is established at 0.2; it is not a paired replay of those old games.
 Local receipts: `data/probes/exact-10k-t02-20260928/`.
 Games: `benchmark/results/h2h_own_games_exact_10k_champion_t02_20260928_1000.jsonl`.
 Runner: `scratch/modal_exact_t02.py`; analysis: `scratch/analyze_exact_t02.py`.
-Cloud run: https://modal.com/apps/sparshithsampath/main/ap-fuNke2T5o9VFNFuLEM7Km2
+Cloud run: https://modal.com/apps/sparshithsampath/main/ap-1uboUNe3egd9c8qfpNa3Jp
 
 Two earlier preflight launches failed on remote module imports before games
 started and were stopped. Packaging was corrected without changing the protocol.
+A third stopped before games because the champion's saved step is 148,400, not
+the 200,000 claimed by the registry notes. Both checkpoint SHA256 values match
+the September 23 RL audit exactly, so identity is established by those historical
+hashes. Candidate step 5,500 and identical tokenizer/config checks passed.

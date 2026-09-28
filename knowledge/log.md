@@ -1062,3 +1062,15 @@ Headless Chrome drive: starter file passes all checks in 0.3 s, 3 ms per move at
 tokens on CPU; play and undo work; a 20-game match against the baseline runs on CPU
 (2 games in 2 s, both baseline wins by mate, as expected for random weights); no console
 errors. Dev deps added: onnx 1.23.0, onnxruntime 1.23.2 (last line with Python 3.10 wheels).
+
+## 2026-09-28 exact-policy low-temperature confirmation launched
+
+User requested 1,000 fresh own-game exact-10k versus original champion games at
+0.2 after the RL consolidation. Protocol fixed before collection: 500 per color,
+200-ply cap, legal masking/EOS disabled, no KV cache, eight A10G shards, fresh
+seed family 2026092800. No retraining or deployment. Checkpoint hashes match the
+September 23 audit exactly. Champion metadata records step 148,400, correcting
+the registry note's 200,000; candidate is step 5,500. Three preflight-only launch
+failures were resolved before games, two packaging failures and the stale step
+assertion. Results pending. Full protocol:
+`experiments/2026-09-28-exact-policy-temperature-02.md`.
