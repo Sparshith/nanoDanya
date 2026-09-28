@@ -1177,3 +1177,27 @@ starter requirements.
 workspace2 initialization passed all checkpoint, engine, opening-book, protocol, and
 source-hash checks. The replacement job reused all four saved baseline game shards
 (200 games) and continued to grading. Migration complete, ten-round run active.
+
+## 2026-09-28 iterative RL launcher recovery
+
+Status check found workspace2 app ap-KNUPguFgXEpKJ7IJljIQFU had stopped before any RL
+updates. It completed 1,000 round-one games and 27,096 engine-graded positions
+(6,017 priority), but the trainer subprocess could not import Modal for volume
+reload. Moved reload into the existing Modal parent function. Preserved the
+original protocol/source archive and recorded old/new source hashes in
+runtime-fix.json; no RL settings or rewards changed. Existing ONNX image dependencies
+from separate work are unused here. Sixteen focused tests pass. Recovery app
+ap-Yq4Nu4itS2Qy1YGWf6iTnP launched on workspace2, passed initialization, and is reusing
+saved data. First actual optimizer updates still to be verified.
+
+## 2026-09-28 dashboard deploys to www.sparshith.com/nd-challenge
+
+`challenge/dashboard/deploy.py` builds, packs and copies seven runtime files (page,
+stylesheet, two bundles, wasm runtime + loader, baseline.onnx; 24.1 MB) into the blog
+repository's `nd-challenge/`, which GitHub Pages serves. The worker now imports
+`onnxruntime-web/wasm` (no WebGPU/jsep build), so the wasm shipped is the 14 MB
+`ort-wasm-simd-threaded.wasm` instead of the 28 MB jsep one. Without cross-origin
+isolation headers ORT runs single-threaded: 41 ms/move at 64 tokens vs 33 locally.
+Headless drive from the blog root passed check, play and a 2-game match. Bundles and
+`ort/` are gitignored in nanoDanya; the blog holds the built copy. The page carries the
+blog's Cloudflare analytics loader and its header links to the nanoDanya post.

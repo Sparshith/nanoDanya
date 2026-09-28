@@ -57,6 +57,14 @@ checkpoint's checksum matches exactly; no models or datasets were downloaded
 locally. Transfer receipt: `data/probes/iterative-sf2000-20260928/workspace-transfer.json`.
 Replacement detached app: https://modal.com/apps/workspace2/main/ap-KNUPguFgXEpKJ7IJljIQFU .
 workspace2 initialization passed and reused all four saved probe game shards (200 games).
+That app subsequently stopped before its first RL update: importing Modal from the
+training subprocess failed because the SDK is only available in its parent runtime.
+Round-one collection (1,000 games) and grading (27,096 positions, 6,017 priority)
+had completed. The fix moves volume reload into the existing Modal training parent.
+The original protocol and source archive are preserved as `*-before-runtime-fix.*`;
+`runtime-fix.json` records both sets of hashes. RL settings and datasets are unchanged.
+Sixteen focused tests pass after the fix. Recovery app:
+https://modal.com/apps/workspace2/main/ap-Yq4Nu4itS2Qy1YGWf6iTnP .
 Initial checkpoint, engine binary, opening book, and all frozen source hashes
 passed cloud validation. The first observed stage was `probe_collection`.
 
