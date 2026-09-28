@@ -1,6 +1,6 @@
 # nanoDanya State
 
-Last updated: 2026-09-24
+Last updated: 2026-09-28
 
 The project asks how much chess (legal continuation, tactics, termination) a pure
 next-token model internalizes from data and objectives. Runtime scaffolds (legality
@@ -21,7 +21,7 @@ Scale under plain CE is the lever; data source and architecture are second-order
   games is a tie (47.25 / 52.75 H2H). The old "puzzle data is better" story is dead;
   earlier puzzle-model wins were scale in disguise.
 - **Registry baseline: the 15M-game model.** The registry default is `plain/games-15m`
-  (L16_H8_E1024 best, step 200k, `checkpoints/plain/games-15m/l16_best.pt`), which is
+  (L16_H8_E1024 best, saved step 148,400, `checkpoints/plain/games-15m/l16_best.pt`), which is
   also `modal_benchmark.py`'s default; the size-matched L12 is `plain/games-15m/l12`.
   The H2H matrix, Stockfish ladder, and blog numbers are from the L12: ~68-70% vs
   both 5M models, and 97% / 78.25% / 42.5% vs sf500/sf1000/sf1500. Architecture is a
@@ -167,6 +167,16 @@ linearly readable from hidden states and improve with data
   unresolved. Deployed to the Lichess serving endpoint on 2026-09-19 at the
   user's request; registry baseline remains unchanged. Public-rating gain pending
   ([10k scale run](experiments/2026-09-18-own-games-exact-10k.md)).
+- **Exact-10k gain is not established at temperature 0.2 (2026-09-28).**
+  The same frozen candidate scored 364W/320D/316L, **52.4%/1,000** against the
+  original champion, color-stratified bootstrap 95% **49.90–54.95%**; implied
+  H2H Elo +16.7 [-0.7, +34.5]. A small gain remains plausible, but the earlier
+  +69 Elo at 0.8 does not carry over as an established gain at 0.2. All games
+  replay-audited; 500 per color, three unresolved caps, 949 distinct sequences.
+  Checkpoint hashes match the September 23 audit before and after collection.
+  Champion metadata confirms saved step 148,400, correcting the old 200k note.
+  No retraining or deployment
+  ([confirmation](experiments/2026-09-28-exact-policy-temperature-02.md)).
 - Mate-threat oversampling pilot completed (2026-09-19): two matched 300-update
   arms from the original pre-RL model, 1,000 training targets from different games.
   Targeted training lowers training mate-blunder probability 6.19% -> 0.63%; on

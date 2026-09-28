@@ -1,7 +1,44 @@
 # Own-game exact-10k versus original champion at temperature 0.2
 
-Status: running. User requested the matched low-temperature confirmation after
-reviewing the RL experiment history. No retraining or deployment is part of this run.
+Status: complete. All 1,000 games and checkpoint/replay audits passed. A strength
+gain at temperature 0.2 is not established at the predeclared 95% level. User
+requested this confirmation after reviewing the RL experiment history.
+No retraining or deployment occurred.
+
+## Result
+
+| Comparison | W / D / L | Score | 95% score interval | Implied H2H Elo |
+| --- | --- | ---: | --- | --- |
+| Exact-10k vs original champion, temperature 0.2 | 364 / 320 / 316 | 52.4% | 49.90–54.95% | +16.7, interval -0.7 to +34.5 |
+
+The primary interval is a 10,000-resample game bootstrap stratified by color.
+It includes 50%, so this run does not establish an improvement or equivalence.
+A modest positive effect remains plausible. The historical temperature-0.8
+result was 59.8%/1,000, about +69 Elo; its advantage cannot be assumed to hold
+at 0.2. This comparison alone does not isolate whether RL mainly reshaped the
+distribution away from lower-ranked mistakes or improved move ranking.
+
+Candidate score was 51.5% as White (169W/177D/154L) and 53.3% as Black
+(195W/143D/162L), each over 500 games. There were 949 distinct complete move
+sequences. Three unresolved 200-ply caps were scored as draws; treating all as
+candidate losses/wins bounds the observed score at 52.25–52.55%.
+Terminations: 680 checkmates, 257 fivefold repetitions, 43 stalemates,
+17 insufficient-material draws, and three caps.
+
+All 1,000 games were replayed from the initial position with matching legal
+moves, results, terminations, identities, complete numbering and balanced colors.
+All eight shard requests, seeds, legal masks, disabled EOS and no-cache flags
+passed. No game IDs overlap earlier own-game H2H files. Checkpoint hashes were
+unchanged after collection and match the September 23 audit; configs and
+tokenizers match. Source snapshot and hashes are saved locally. The old
+temperature-0.8 1,000-game file was independently replay-audited as well.
+Two existing shard persistence tests passed; runner and analysis compile, and
+whitespace checks pass. Collection wall time after preflight was 112.5 seconds.
+
+No sample extension or checkpoint selection followed this result. Future
+training comparisons should measure gains at the intended evaluation temperature
+and retain the original champion as a control. A matched refreshed-position
+versus fixed-archive training comparison remains a proposal, not a launched run.
 
 ## Fixed protocol
 

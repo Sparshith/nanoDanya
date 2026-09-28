@@ -1074,3 +1074,17 @@ the registry note's 200,000; candidate is step 5,500. Three preflight-only launc
 failures were resolved before games, two packaging failures and the stale step
 assertion. Results pending. Full protocol:
 `experiments/2026-09-28-exact-policy-temperature-02.md`.
+
+## 2026-09-28 exact-policy low-temperature confirmation complete
+
+Exact-10k versus original champion at temperature 0.2: 364W/320D/316L,
+52.4% over the fixed 1,000 games. Color-stratified bootstrap 95% 49.90–54.95%,
+implied H2H Elo +16.7 [-0.7, +34.5]. A strength gain is not established at this
+level; a modest positive effect remains plausible. The earlier 59.8%/+69 Elo
+result is specific to temperature 0.8 and cannot be carried over unchanged.
+White/Black scores 51.5%/53.3%, 500 each, 949 distinct sequences. Three caps;
+all-loss/all-win bounds 52.25–52.55%. All games replayed, all shard settings
+verified, historical checkpoint hashes unchanged before/after. Also re-audited
+the historical 1,000-game result. Existing shard tests: 2 passed. No retraining,
+sample extension, deployment, commit or push. Updated STATE and the experiment
+note; receipts and source snapshot: data/probes/exact-10k-t02-20260928/.
