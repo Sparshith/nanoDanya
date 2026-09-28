@@ -1120,3 +1120,23 @@ checkpoint hashes unchanged; native forward max error 1.526e-5. Three focused
 metric tests passed; source-game bootstrap and aggregate decomposition audits
 passed. No training or deployment. Reports: data/probes/policy-ranking-20260928/.
 Full interpretation: experiments/2026-09-28-policy-ranking-diagnostic.md.
+
+## 2026-09-28 starter ships the baseline, not random weights
+
+`challenge/starter/model.py` is now the baseline architecture itself (6×384, RoPE,
+RMSNorm, QK-norm, relu², softcap, tied embeddings, optional int4 fake-quant for
+training), self-contained, no import from `training/`. `baseline.pt` (9.2 MB) holds the
+packed int4 codes and per-group scales straight from the served model plus the config;
+`export.py --int4` reuses those scales so the export is bit-identical in weights to what
+the page serves (test: 1e-4 on logits at 1/8/64 tokens). It must be published as a GitHub
+release asset at `releases/download/baseline-v1/baseline.pt`; until then export.py's
+download 404s and the file has to be copied by hand.
+
+`export.py` precisions on the baseline: fp32 65.5 MB, int8 22.4 MB (folded export,
+quantize_dynamic hits MatMul and Gather; logits drift up to 2.0 but argmax holds), int4
+9.63 MB. int4 is a generic pass over any 2-D float initializer with width divisible by
+64, so it also works for other architectures exported through torch. The ONNX metadata
+now carries `config` so `inference/onnx_policy.load_torch_from_onnx` can rebuild the
+PyTorch model for the batched benchmarks; `OnnxPolicy` serves the tournament path.
+`challenge/baseline/` is down to the test and a README. Page drive with the starter's
+export: check 0.6 s, 33 ms/move at 64 tokens on CPU, 2 draws vs the served baseline.
