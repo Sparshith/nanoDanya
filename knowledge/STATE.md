@@ -177,6 +177,18 @@ linearly readable from hidden states and improve with data
   Champion metadata confirms saved step 148,400, correcting the old 200k note.
   No retraining or deployment
   ([confirmation](experiments/2026-09-28-exact-policy-temperature-02.md)).
+- **Ranking diagnostic (2026-09-28): real but modest greedy improvement.** On
+  29,194 previously held-out positions from 999 games, exact-10k changes the
+  preferred chess move 10.02% of the time. Greedy >=300cp blunders fall
+  13.369% -> 12.814%, -0.555pp (paired game-bootstrap 95% [-0.742, -0.374]):
+  421 fixed, 259 introduced, 3,482 retained (89.2% of original errors remain).
+  At temperature 0.8, 81.74% of expected-reward gain and 83.22% of blunder-mass
+  reduction occur on unchanged-top positions. At 0.2 those shares are 40.85%
+  and 44.13%. Thus RL does rerank usefully, but much of its larger 0.8 benefit
+  is probability redistribution; this is not proof that sharpening alone causes
+  the H2H difference. Source positions were collected at 0.8 and already inspected.
+  Raw legality regresses slightly. No training or deployment
+  ([diagnostic](experiments/2026-09-28-policy-ranking-diagnostic.md)).
 - Mate-threat oversampling pilot completed (2026-09-19): two matched 300-update
   arms from the original pre-RL model, 1,000 training targets from different games.
   Targeted training lowers training mate-blunder probability 6.19% -> 0.63%; on

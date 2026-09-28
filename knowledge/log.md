@@ -1088,3 +1088,35 @@ verified, historical checkpoint hashes unchanged before/after. Also re-audited
 the historical 1,000-game result. Existing shard tests: 2 passed. No retraining,
 sample extension, deployment, commit or push. Updated STATE and the experiment
 note; receipts and source snapshot: data/probes/exact-10k-t02-20260928/.
+
+## 2026-09-28 policy ranking versus probability diagnostic launched
+
+User requested checking whether exact-10k RL changes preferred moves or mainly
+redistributes probability. Frozen-checkpoint inference on all 29,194 previously
+held-out positions from 999 games, original engine labels, temperatures 0.8/0.2.
+Primary metrics: greedy blunders fixed/introduced and expected blunder mass;
+separate token suffix changes from chess-move changes. Partition gains by changed
+versus unchanged greedy move, with paired source-game bootstrap intervals.
+No training or deployment. Protocol and caveats:
+`experiments/2026-09-28-policy-ranking-diagnostic.md`.
+
+## 2026-09-28 policy ranking diagnostic complete
+
+All 29,194 original exact-10k test positions / 999 games scored under frozen
+original and RL checkpoints, FP32. Preferred chess move changes on 2,924 (10.02%):
+1,196 materially better, 962 worse (>30cp), 766 near-equal. Greedy >=300cp
+blunders fall 13.369% to 12.814%, paired game-bootstrap change -0.555pp,
+95% [-0.742, -0.374]. 421 fixed, 259 introduced, 3,482 retained: 89.2% of old
+errors persist. Expected blunder mass: 16.175% -> 14.676% at 0.8, and
+13.558% -> 12.872% at 0.2. At 0.8, 81.74% of expected-reward gain occurs on
+unchanged-top positions; at 0.2, 40.85%. Policy concentration is substantial,
+but claiming no rank improvement would be wrong. Raw top-token illegality rises
+2.548% -> 2.812%. This is previously inspected archive evidence, not new
+low-temperature match positions or a causal explanation of H2H strength.
+
+All action tables/reward maps/history normalizations verified, 128 histories
+replayed, production support and 256 greedy comparisons checked. Historical
+checkpoint hashes unchanged; native forward max error 1.526e-5. Three focused
+metric tests passed; source-game bootstrap and aggregate decomposition audits
+passed. No training or deployment. Reports: data/probes/policy-ranking-20260928/.
+Full interpretation: experiments/2026-09-28-policy-ranking-diagnostic.md.
