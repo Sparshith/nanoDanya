@@ -7,25 +7,22 @@ the separate nanoDanya model endpoint only when it needs to make a move.
 
 The endpoint serves `grpo/own-games-exact-10k-20260918`, selected step 5,500,
 since 2026-09-19. Move requests now use temperature **0.2**.
-The temperature trial starts at **1412 rapid, 572 rated rapid games** and targets
+A rapid trial (`budget.trial` in Modal Dict `nanodanya-lichess-state`) targets
 100 completed rated 10+0 games, with up to 10 games simultaneously. Aborts do not
-count. Completed plus ongoing games reserve the total budget; matchmaking stops
-at 100 completed games and remains stopped across restarts and midnight. Incoming
-challenges must also be rated 10+0 and share the same budget and concurrency cap.
-The trial state, baseline, game outcomes, and final rapid rating persist under
-`budget.trial` in Modal Dict `nanodanya-lichess-state`. Startup reconciles against
-Lichess history. One listener owns all games; its matchmaker checks every 10 seconds,
-keeps only one pending challenge, and respects Lichess rate-limit cooldowns.
-Without a trial, normal limits are five games per IST day with a two-hour gap.
+count. Completed plus ongoing games reserve the total budget. Incoming challenges
+must also be rated 10+0 and share the same budget and concurrency cap. The trial
+state, baseline, game outcomes, and final rapid rating persist in the Dict.
+Startup reconciles against Lichess history. When a trial completes, it moves to
+`budget.past_trials` after its final rating is recorded, and the bot returns to
+normal limits: five games per IST day with a two-hour gap. One listener owns all
+games; its matchmaker checks every 10 seconds, keeps only one pending challenge,
+and respects Lichess rate-limit cooldowns.
 
-A separate `budget.bullet_trial` now targets 100 completed rated **1+1 bullet**
-games at temperature 0.2, one bullet game at a time within the overall 10-game
-cap. It starts with zero rated bullet games (the displayed 3000 rating is
-provisional, RD 500). `bullet_config` seeds this counter once; it never resets
-an existing trial. Game events/history route each result by speed. Each trial
-has its own final rating and stops independently. Before sending or accepting
-a bullet challenge, the listener makes a warm-up inference request. Server
-challenge limits are shared across both trials and may delay completion.
+The current trial started 2026-09-29 at **1525 rapid, 650 rated rapid games**.
+The earlier 0.2 trials (rapid 78/100, 1412 -> 1525; bullet 28/100) are in
+`past_trials`. A `bullet_trial` key (seeded from `bullet_config`) runs 1+1 bullet
+the same way, one game at a time with a warm-up inference request first; none
+is set now.
 
 Inference accepts 10 concurrent inputs on one T4; the HTTP endpoint awaits the
 remote model asynchronously. Ten simultaneous legal-move requests are checked

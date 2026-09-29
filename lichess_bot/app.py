@@ -106,6 +106,10 @@ def run_bot(dry_run: bool = False):
                         print(f"Final {speed} rating: {trial[field]}")
                     except Exception as error:
                         print(f"Could not fetch final rating: {error}")
+                if trial and field in trial:
+                    self.state.setdefault("past_trials", []).append(self.state.pop(trial_key(speed)))
+                    state_store["budget"] = self.state
+                    print(f"{speed} trial archived; back to normal limits")
 
         def _at_capacity(self):
             return len(self.active_games) >= self.state.get("trial", {}).get("max_concurrent", 1)
