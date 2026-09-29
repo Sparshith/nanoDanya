@@ -1254,3 +1254,11 @@ Starter gains `data.py`: the baseline's training set, `datasets/games/15m` (15M 
 per game), to be published at hf.co/datasets/Sparshith/nanodanya-games-15m by
 `data_prep/publish_dataset.py` (Modal function; needs a `huggingface-token` secret, not
 yet created). Not uploaded yet.
+
+## 2026-09-29 training data published on Hugging Face
+
+`data_prep/publish_dataset.py` uploaded `datasets/games/15m` from the Modal volume to
+https://huggingface.co/datasets/Sparshith/nanodanya-games-15m (train.bin 2,091,254,850
+bytes, val.bin 232,485,248, vocabulary.json, dataset card, CC0). `challenge/starter/data.py`
+loads it: val split 116,242,624 ids, first id 0 (`<bos>`), random 256-token blocks match
+the training sampler. The HF write token lives in the Modal secret `huggingface-token`.
