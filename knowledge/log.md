@@ -1236,3 +1236,21 @@ removed, so no more bullet. New rapid trial `temperature-02-100-games-20260929`:
 100 rated 10+0 games, 10 concurrent, baseline 1525 over 650 rapid games. A
 finished trial now archives itself and the bot returns to 5 games/day with a 2h
 gap (previously a finished trial stopped matchmaking forever).
+
+## 2026-09-29 leaderboard: d9-200k on top, one pooled rating fit
+
+Built BayesElo locally (same tarball and hash as the Modal image) and fit all 21,600
+games in `output/small-depth-long-20260929/bayeselo-games/` with sf1500 pinned at 1500:
+nanodanya-l12-int8 1757 ±22, sf2000 1646, d9-200k 1517 ±12 (2,800 games), d15-200k 1505,
+d28-200k 1475, deep 1352, long 1337, distilled 1273 ±13 (2,400 games), ce 1240, sf1000
+1236. "distilled" is the served 6x384 starter baseline (1260 in its own 2026-09-24 fit).
+The leaderboard now shows d9-200k first (9.45 MB, 2,023/8,800 puzzles, 1517 ±12) and the
+baseline second at 1273 ±13, both from this one fit, plus a "By" column with the GitHub
+user. d9-200k already follows contract v2 (metadata with vocabulary, context_length,
+config; int4 pass); starter check.py: all OK, 3.5-0.5 in 4 quick games vs the baseline.
+
+Starter gains `data.py`: the baseline's training set, `datasets/games/15m` (15M Lichess
+2025 games, 13.5M/1.5M split, 1,045,627,425 + 116,242,624 uint16 ids, `<bos> moves <eos>`
+per game), to be published at hf.co/datasets/Sparshith/nanodanya-games-15m by
+`data_prep/publish_dataset.py` (Modal function; needs a `huggingface-token` secret, not
+yet created). Not uploaded yet.
