@@ -1209,3 +1209,20 @@ Recovery verified: round one reached optimizer step 50/300 on H100, finite rewar
 `challenge/dashboard/` is now `dashboard/` at the repo root, so `challenge/` holds only what an
 entrant needs (starter, baseline test, llms.txt, README). Paths in pack.py, deploy.py, the
 openings import, the metadata test and the baseline test follow.
+
+## 2026-09-28 iterative SF2000 RL completed
+
+Recovery app ap-Yq4Nu4itS2Qy1YGWf6iTnP finished ten rounds and final evaluation at
+19:11 IST. 10,000 training games, 277,211 graded positions, 3,000 updates per arm
+(first 300 shared). Verified checkpoint lineage, fixed-data reuse, and budgets.
+All 3,500 final evaluation games checksum-checked and replay-audited locally.
+Refresh versus initial: 339W/298D/363L, 48.8%, opening-cluster 95% [46.05, 51.55].
+Refresh versus fixed archive: 338W/308D/354L, 49.2%, 95% [46.10, 52.20].
+SF2000 scores over 500 games each: initial 17.0%, refresh 16.7%, fixed 18.9%.
+Frozen-probe greedy blunders: initial 11.54%, refresh 10.53%, fixed 11.10%.
+Refresh-minus-initial equal-game-weight paired difference -1.021 pp, 95%
+[-1.792, -0.312]. Small move-safety improvement, no established strength gain.
+One baseline SF shard retried after an unsupported opponent SAN token, noted
+as a comparison limitation. No H2H outcome selection. No deployment or commit.
+Report: experiments/2026-09-28-iterative-sf2000-rl.md; local reports under
+ data/probes/iterative-sf2000-20260928/.

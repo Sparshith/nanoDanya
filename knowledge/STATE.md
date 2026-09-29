@@ -14,10 +14,13 @@ https://www.sparshith.com/posts/nanodanya.html (numbers verified against
 
 ## Current story
 
-- **Iterative SF2000 RL running on workspace2 (2026-09-28).** Ten rounds of 1,000 games from
-  varied openings and 300 RL updates, starting from exact-10k. Round one is shared
-  with an equal-update fixed-data control; subsequent refresh rounds use the
-  latest policy. Evaluation openings are held out. No results or promotion yet
+- **Iterative SF2000 RL complete, no established strength gain (2026-09-28).**
+  Ten rounds, 10,000 fresh games, 3,000 updates per arm. Refresh scores 48.8%
+  versus initial (1,000 games, opening-cluster 95% 46.1% to 51.6%) and 49.2%
+  versus fixed archive (1,000 games, 46.1% to 52.2%). SF2000 scores are 17.0%
+  initial, 16.7% refresh, 18.9% fixed (500 each). Held-out greedy blunders improve
+  11.54% to 10.53%, but this does not translate into demonstrated game strength.
+  Final games replay-audited, all training on workspace2. No promotion
   ([protocol](experiments/2026-09-28-iterative-sf2000-rl.md)).
 
 Scale under plain CE is the lever; data source and architecture are second-order
