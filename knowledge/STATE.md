@@ -39,6 +39,9 @@ Scale under plain CE is the lever; data source and architecture are second-order
   `inference/serve.py`) and
   matchmakes: rated rapid 10+0 challenges to online bots, capped at 5 games/day with
   a 2h gap (`lichess_bot/app.py`); bullet/blitz declined (T4 cold starts would flag).
+  On **2026-09-29** a 100-game rated rapid trial (10 concurrent, temperature 0.2)
+  started from 1525 rapid; when it completes it archives itself and the 5/day
+  schedule resumes. The earlier 0.2 trial reached 1412 -> 1525 over 78 games.
   On **2026-09-19 only**, the user requested a 50-game daily cap with a one-minute
   matchmaking gap/tick. It expires at midnight IST. Counts now persist across
   restarts, reconcile with game history, and include incoming games; one listener

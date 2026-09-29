@@ -1226,3 +1226,13 @@ One baseline SF shard retried after an unsupported opponent SAN token, noted
 as a comparison limitation. No H2H outcome selection. No deployment or commit.
 Report: experiments/2026-09-28-iterative-sf2000-rl.md; local reports under
  data/probes/iterative-sf2000-20260928/.
+
+## 2026-09-29 lichess bot restarted for a 100-game rapid day
+The bot had been idle since 2026-09-22: the `drain` flag was left set after the
+last listener replacement, so every scheduled run exited without matchmaking.
+Temperature-0.2 trials at that point: rapid 78/100 completed (1412 -> 1525 rapid,
+RD 48), bullet 28/100. Both archived under `budget.past_trials`; `bullet_config`
+removed, so no more bullet. New rapid trial `temperature-02-100-games-20260929`:
+100 rated 10+0 games, 10 concurrent, baseline 1525 over 650 rapid games. A
+finished trial now archives itself and the bot returns to 5 games/day with a 2h
+gap (previously a finished trial stopped matchmaking forever).
