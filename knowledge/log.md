@@ -1262,3 +1262,17 @@ https://huggingface.co/datasets/Sparshith/nanodanya-games-15m (train.bin 2,091,2
 bytes, val.bin 232,485,248, vocabulary.json, dataset card, CC0). `challenge/starter/data.py`
 loads it: val split 116,242,624 ids, first id 0 (`<bos>`), random 256-token blocks match
 the training sampler. The HF write token lives in the Modal secret `huggingface-token`.
+
+## 2026-09-29 d9-200k is the challenge baseline; starter reproduces it end to end
+
+`challenge/starter/baseline.pt` is now the d9-200k packed int4 codes, scales and config
+(8,908,631 bytes) published as GitHub release `baseline-v2`; `export.py --int4` from it
+matches `output/small-depth-long-20260929/d9-200k.onnx` with max logit difference 0 at
+1/8/64/300 tokens, and the download path was verified byte-identical. `model.py`
+defaults are 9 layers, 5 heads, width 320 (15,779,200 parameters). New `train.py` is the
+recipe: AdamW wd 0.1, batch 64 × 256-token blocks from `data.py`, cosine 3e-4→3e-5 over
+200k steps with 200 warmup, grad clip 1.0, seed 42, then 2k QAT steps at 3e-5→3e-6;
+smoke-tested for 3+2 steps on the cached val split (mps). The page serves the new file
+(9,454,892 bytes); leaderboard row 1 "nanoDanya baseline" 1517 ±12 / 23.0%, row 2
+"nanoDanya v1" 1273 ±13 / 12.9%. Deployed copy driven headless: check 0.4 s, 40 ms/move,
+2-2 in 4 mirror games. The old distilled baseline stays available as release baseline-v1.
