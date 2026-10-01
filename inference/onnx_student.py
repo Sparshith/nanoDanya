@@ -1,6 +1,4 @@
-# The baseline: a 6-layer, width-384 transformer with tied embeddings (16M weights).
-# Train it as it is, change it, or replace it. The only rule the page cares about:
-# forward(input_ids) takes int64 [batch, tokens] and returns float32 logits [batch, tokens, vocabulary].
+"""ONNX-exportable student architecture used by research export and evaluation."""
 import math
 from dataclasses import dataclass
 
@@ -13,9 +11,9 @@ import torch.nn.functional as F
 class Config:
     vocab_size: int = 14750
     sequence_len: int = 512
-    n_layer: int = 6
-    n_head: int = 6
-    n_embd: int = 384
+    n_layer: int = 9
+    n_head: int = 5
+    n_embd: int = 320
 
 
 def norm(x):

@@ -1,13 +1,8 @@
-# Turns weights into model.onnx, the one file you drop on the challenge page.
-#   python3 export.py --int4                              the baseline, exactly as served (downloads baseline.pt once)
-#   python3 export.py --checkpoint mine.pt --int8         your trained weights, 8-bit matrices
-#   python3 export.py --checkpoint mine.pt                your trained weights, full fp32
-# Precision is your lever against the 10 MB limit: fp32 fits 2.5M weights, int8 10M, int4 20M.
+"""Export a research checkpoint to standalone ONNX with optional INT8 or INT4 weights."""
 import argparse
 import json
 import os
 from dataclasses import asdict
-import urllib.request
 from pathlib import Path
 
 import numpy as np
@@ -15,18 +10,17 @@ import onnx
 import torch
 from onnx import TensorProto, helper, numpy_helper
 
-from model import Config, Model, load_weights
+from inference.onnx_student import Config, Model, load_weights
 
-HERE = Path(__file__).parent
 LIMIT = 10_000_000
 GROUP = 64
-WEIGHTS_URL = "https://github.com/Sparshith/nanoDanya/releases/download/baseline-v1/baseline.pt"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--checkpoint", type=Path, default=os.environ.get("STUDENT_CHECKPOINT"),
-                    help="your weights: a state_dict from torch.save, or a training checkpoint. Default: the baseline")
-parser.add_argument("--output", type=Path, default=os.environ.get("STUDENT_ARTIFACT", HERE / "model.onnx"))
-parser.add_argument("--name", default=os.environ.get("EXPORT_NAME", "nanoDanya baseline"))
+                    help="training checkpoint or state_dict to export")
+parser.add_argument("--output", type=Path, default=os.environ.get("STUDENT_ARTIFACT", "model.onnx"))
+parser.add_argument("--name", default=os.environ.get("EXPORT_NAME", "nanoDanya student"))
+parser.add_argument("--vocabulary", type=Path, help="JSON token list, required for weights without tokenizer metadata")
 precision = parser.add_mutually_exclusive_group()
 precision.add_argument("--int8", action="store_true", help="8-bit matrix weights, about 4x smaller than fp32")
 precision.add_argument("--int4", action="store_true", help="4-bit matrix weights in groups of 64, about 8x smaller")
@@ -34,17 +28,23 @@ args = parser.parse_args()
 if os.environ.get("EXPORT_PRECISION") == "int4":
     args.int4 = True
 
-weights = args.checkpoint or HERE / "baseline.pt"
-if not args.checkpoint and not weights.exists():
-    print(f"Downloading the baseline weights to {weights} …")
-    urllib.request.urlretrieve(WEIGHTS_URL, weights)
+if not args.checkpoint:
+    parser.error("--checkpoint or STUDENT_CHECKPOINT is required")
+weights = args.checkpoint
+saved = torch.load(weights, map_location="cpu", weights_only=False)
+if args.vocabulary:
+    vocabulary = json.loads(args.vocabulary.read_text())
+elif "meta" in saved and "tokenizer" in saved["meta"]:
+    itos = saved["meta"]["tokenizer"]["itos"]
+    vocabulary = [itos[i] if i in itos else itos[str(i)] for i in range(len(itos))] if isinstance(itos, dict) else list(itos)
+else:
+    parser.error("checkpoint has no tokenizer metadata; provide --vocabulary")
 config, state, saved_scales = load_weights(weights)
 model = Model(config or Config(), qat=False).eval()
 state.pop("lm_head.weight", None)
 model.load_state_dict(state)
-vocabulary = json.loads((HERE / "vocabulary.json").read_text())
 if len(vocabulary) != model.config.vocab_size:
-    raise SystemExit(f"vocabulary.json has {len(vocabulary):,} tokens but the model has {model.config.vocab_size:,}")
+    raise SystemExit(f"vocabulary has {len(vocabulary):,} tokens but the model has {model.config.vocab_size:,}")
 
 
 class LastToken(torch.nn.Module):

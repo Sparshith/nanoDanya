@@ -26,7 +26,7 @@ Local `data/` holds only small working files; it is gitignored and not the sourc
 
 ## Challenge
 
-`challenge/` is the public entry kit: `starter/` (copy this to enter: the baseline model in PyTorch, `baseline.pt` weights downloaded from a GitHub release, `export.py` with fp32/int8/int4, `check.py` = the page's checks plus a local match), `baseline/` (the export test), `llms.txt` (the contract agents read). The checker page is `dashboard/` at the repo root, gitignored for now (`npm ci`, `python3 build.py`, `python3 pack.py`, `python3 serve.py`; `python3 deploy.py` copies the built page into `../blog/nd-challenge` for www.sparshith.com/nd-challenge). An entry is one ONNX file under 10 MB with the SAN vocabulary in its metadata; the page runs it with ONNX Runtime Web and picks the best legal move. Offline scoring loads the same file through `inference/onnx_policy.py`.
+The public entry kit and browser checker live in the separate `Sparshith/nanoDanya-challenge` repository. This repository keeps research experiments and benchmarks. Research ONNX export/import uses `inference/export_onnx.py`, `inference/onnx_student.py`, and `inference/onnx_policy.py`; it does not import the challenge starter.
 
 ## Knowledge
 

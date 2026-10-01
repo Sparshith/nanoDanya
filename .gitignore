@@ -18,6 +18,3 @@ plot/
 output/
 node_modules/
 .claude/
-
-# challenge page source, deployed to the blog repo for now
-dashboard/

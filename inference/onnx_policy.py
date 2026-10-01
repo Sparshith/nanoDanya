@@ -1,4 +1,4 @@
-"""Run a challenge ONNX entry offline with the same interface the benchmarks use for PyTorch models."""
+"""Run an ONNX policy offline with the same interface the benchmarks use for PyTorch models."""
 
 from __future__ import annotations
 
@@ -28,17 +28,11 @@ class OnnxPolicy:
 
 
 def load_torch_from_onnx(path: str, device: str = "cpu"):
-    """Rebuilds the PyTorch model from a starter int4 export (needs its config metadata), for benchmarks that batch."""
-    import sys
-    from pathlib import Path
-
+    """Rebuild a student INT4 export from its packed weights and config metadata."""
     import onnx
     from onnx import numpy_helper
 
-    starter = Path(__file__).resolve().parents[1] / "challenge/starter"
-    if str(starter) not in sys.path:
-        sys.path.insert(0, str(starter))
-    from model import Config, Model, unpack_int4
+    from inference.onnx_student import Config, Model, unpack_int4
 
     proto = onnx.load(path)
     props = {entry.key: entry.value for entry in proto.metadata_props}
