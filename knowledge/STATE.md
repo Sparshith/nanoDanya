@@ -1,6 +1,6 @@
 # nanoDanya State
 
-Last updated: 2026-09-28
+Last updated: 2026-10-21
 
 The project asks how much chess (legal continuation, tactics, termination) a pure
 next-token model internalizes from data and objectives. Runtime scaffolds (legality
@@ -13,6 +13,31 @@ https://www.sparshith.com/posts/nanodanya.html (numbers verified against
 `benchmark/results/` on 2026-07-04).
 
 ## Current story
+
+- **10 MB mixed-data retraining regressed (completed 2026-10-19).** Fresh
+  9x320 student, 50/50 human–Leela loss and corrected recipe completed 200k
+  updates plus 2k INT4-aware updates; export is 9.45 MB. New scores 45.4% raw
+  and 46.1% masked against old (400 games each). Masked puzzles fall from
+  23.0% to 19.25%; raw engine-game forfeits rise from 46.9% to 50.75%.
+  Both artifacts were freshly tested with canonical tournament histories, so
+  September's 57.6% old-model forfeits are not the comparison baseline.
+  Estimated compute $11.88 of the authorized $50. Keep the existing model;
+  data, context and training changes are confounded, cause not isolated
+  ([results](experiments/2026-10-19-small-leela-retraining.md)).
+
+- **Challenge extracted to its own repository (2026-09-30).** The public starter,
+  rules, submission form, and browser source now live in the independent local
+  `nanoDanya-challenge` checkout. Research ONNX export/import is self-contained
+  under `inference/`; it no longer imports the challenge starter. The GitHub
+  repository is published; both migration commits are pushed to `main`.
+
+- **Challenge now forfeits invalid raw predictions (2026-09-30).** The unchanged
+  9.45 MB d9-200k baseline scores **1303 ±16 internal Elo** and **22.1% puzzles**
+  without legal masking. 691/1200 games (57.6%) forfeit, including 174 `<eos>`
+  predictions. The prior masked 1200-game set refits to 1516 ±15, versus the
+  previous larger-pool 1517. Keep the rating pools separate. Local challenge
+  numbers updated, no deployment
+  ([evaluation](experiments/2026-09-30-unmasked-baseline.md)).
 
 - **Iterative SF2000 RL complete, no established strength gain (2026-09-28).**
   Ten rounds, 10,000 fresh games, 3,000 updates per arm. Refresh scores 48.8%

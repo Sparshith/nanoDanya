@@ -1276,3 +1276,56 @@ smoke-tested for 3+2 steps on the cached val split (mps). The page serves the ne
 (9,454,892 bytes); leaderboard row 1 "nanoDanya baseline" 1517 ±12 / 23.0%, row 2
 "nanoDanya v1" 1273 ±13 / 12.9%. Deployed copy driven headless: check 0.4 s, 40 ms/move,
 2-2 in 4 mirror games. The old distilled baseline stays available as release baseline-v1.
+
+## 2026-09-30: Challenge baseline without legal masking
+
+Reevaluated the unchanged browser baseline on workspace2 H100: 1303 ±16 internal Elo
+over 1200 games, 1941/8800 puzzles solved (22.06%). 691 games forfeited on invalid
+predictions, including 174 EOS tokens. Same-opponent prior masked games refit to
+1516 ±15; no mixing of rating pools. Native ONNX checks found zero top-token
+disagreements. Estimated compute $0.36, cumulative $49.22, app stopped. Local
+challenge numbers updated; no deployment.
+[Protocol and results](experiments/2026-09-30-unmasked-baseline.md).
+
+## 2026-09-30: Extract the public challenge
+
+Moved the starter, rules, browser checker, baseline docs/tests, and submission
+flow into an independent Git checkout at `.worktrees/nanoDanya-challenge`.
+Removed `challenge/` and `dashboard/` from this research working tree.
+Research ONNX export/import retains its implementation under `inference/`,
+without importing the external starter; dataset publication uses its own metadata.
+Existing release weights and Hugging Face data are retained at their URLs.
+The user created `Sparshith/nanoDanya-challenge` on GitHub and approved both
+migration commits. Committed the challenge as `4eab638` and the research extraction
+as `763b379`. Both were pushed to `main` with user approval on 2026-10-01,
+including eight previously unpushed research commits. No deployment or training.
+
+## 2026-10-19 small student retraining on human–Leela data
+
+Launched a fresh d9 (9x320) student on workspace2 with a new user-authorized $50 cap.
+Uses the successful mixed L16 recipe: 50/50 human–Leela normalized loss, no loss
+on missing-history fragments, 512-token windows and 200k updates, followed by
+2k INT4-aware updates. Whole-game batching remains a separate experiment.
+Tournament histories now preserve check markers; both old and new artifacts get
+fresh masked/unmasked evaluations (5,600 games and identical puzzles).
+Preflight passed at 9.45 MB and 0.02597 seconds/update; checkpoint sync repaired
+and verified before launch. Results pending, no deployment. See
+[experiment](experiments/2026-10-19-small-leela-retraining.md).
+
+## 2026-10-21: Small human–Leela retrain completed, existing model retained
+
+Reviewed the October 19 completion: 200k float plus 2k QAT updates, 9,454,897-byte
+export, estimated compute $11.88 of the $50 cap. All 5,600 games replay-audited;
+native ONNX checks and identical 8,800-puzzle comparisons passed. New versus old
+scores 45.375% raw (95% opening-bootstrap interval 41.0–49.75%) and 46.125% masked
+(41.875–50.375%), 400 games each. Masked puzzles regress 2,023 to 1,694 / 8,800;
+raw puzzles 1,941 to 1,613. Raw engine-game forfeits rise 563 to 609 / 1,200
+(46.92% to 50.75%). Masked scores against all three engine settings also decline.
+The baseline was freshly rerun with canonical check markers; September's 57.58%
+forfeits are not directly comparable. Float CE kept improving through 200k;
+QAT CE is 1.74929 versus float 1.68608, but float strength remains unmeasured.
+This combined recipe failed to transfer to the small model; data, context, masks
+and optimization are confounded. Keep d9-200k. Recommended next diagnostic is
+float-versus-export evaluation, then a human-only corrected-recipe control if
+another retrain is warranted. No promotion, commit or push.
+[Full results](experiments/2026-10-19-small-leela-retraining.md).
