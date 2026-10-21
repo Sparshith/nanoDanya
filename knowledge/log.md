@@ -1329,3 +1329,16 @@ and optimization are confounded. Keep d9-200k. Recommended next diagnostic is
 float-versus-export evaluation, then a human-only corrected-recipe control if
 another retrain is warranted. No promotion, commit or push.
 [Full results](experiments/2026-10-19-small-leela-retraining.md).
+
+## 2026-10-21 human blunder baseline: spar93 blitz games
+Graded the user's own Lichess games (spar93) with the Lichess judgement rule (winning-chance
+drop >= 0.3, mate created/lost thresholds) to set a human baseline for a blunders-per-game
+metric. Bullet and ultrabullet excluded. 1,728 standard games: 68 with Lichess server
+analysis (Lichess counts used), 1,660 graded on workspace2 Modal with Debian Stockfish 15.1 at
+1M nodes. **Blitz: 2.87 blunders per game, 8.0 per 100 own moves (1,705 games, avg rating
+~1,510).** Wins 2.49, losses 3.17. Rapid has only 17 games (2.12), too few to use.
+Checks: the formula reproduces Lichess's own blunder counts on 65/68 analysed games. Our
+Stockfish finds fewer blunders than Lichess on 36 cross-checked blitz games (2.22 vs 2.86
+per game), so absolute numbers are grader-specific; compare the model only under this same
+grader. Next: grade nanoDanya's games with the identical pipeline. Script:
+`scratch/modal_lichess_blunders.py`; results `output/lichess-spar93-blunders-20261021/`.
