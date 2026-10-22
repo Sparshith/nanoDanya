@@ -1342,3 +1342,16 @@ Stockfish finds fewer blunders than Lichess on 36 cross-checked blitz games (2.2
 per game), so absolute numbers are grader-specific; compare the model only under this same
 grader. Next: grade nanoDanya's games with the identical pipeline. Script:
 `scratch/modal_lichess_blunders.py`; results `output/lichess-spar93-blunders-20261021/`.
+
+## 2026-10-22 nanoDanya Lichess blunders per game, by deployment period
+Same grader as the spar93 baseline (Lichess judgement rule, Debian Stockfish 15.1, 1M
+nodes, workspace2 Modal) over all 1,103 nanoDanya rapid games. Periods split at the logged
+switch times (RL deploy 2026-09-19 02:58Z, temperature 0.2 trial 2026-09-22 05:51Z,
+whole-game model 2026-10-19 13:51Z). Blunders per game, 95% normal interval:
+champion @0.8 2.63 ±0.22 (510 games), RL @0.8 2.28 ±0.46 (58), RL @0.2 1.75 ±0.21 (262),
+whole-game @0.2 1.58 ±0.20 (268). Human baseline spar93 blitz 2.87 ±0.11 (1,705).
+Champion@0.8 to RL@0.2 is a clear drop; temperature alone (RL 0.8 to 0.2) points the
+same way but rests on 58 games; the whole-game step is not established by blunders even
+though rapid rose 1566 to 1675. Opponent pools differ by period (avg opponent 1421, 1631,
+1645, 1587), so this is descriptive, not a controlled comparison.
+Results: `output/lichess-nanodanya-blunders-20261021/`.
