@@ -1355,3 +1355,13 @@ same way but rests on 58 games; the whole-game step is not established by blunde
 though rapid rose 1566 to 1675. Opponent pools differ by period (avg opponent 1421, 1631,
 1645, 1587), so this is descriptive, not a controlled comparison.
 Results: `output/lichess-nanodanya-blunders-20261021/`.
+
+## 2026-10-27 temperature explainer position (for the X post)
+Probed the original L16 champion's legal-move distribution on all 400 temperature-0.8
+sweep games vs SF1500 (workspace2 Modal, `scratch/modal_temperature_probe.py`), then graded
+candidate positions with Stockfish 15.1 at 2M nodes. Chosen: game 138, ply 54 (move 28,
+White to move, FEN `r1b5/2p2Q2/ppr4k/4p2p/2B3pP/2PK2P1/P5P1/7q w - - 2 28`). Qf8+ is the
+only non-losing move (perpetual, 0cp); all 29 other legal moves lose (most to mate). The
+model puts 56.5% on Qf8+ at T=1; chance of a losing move is 44% at T=1.0, 37% at 0.8,
+7% at 0.2, 0.5% at 0.1. In the game it sampled Bd5 at 0.8 and was mated. Animation in
+`plot/temperature-slider/`. Results: `output/temperature-probe-20261027/`.
