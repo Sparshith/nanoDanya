@@ -1365,3 +1365,11 @@ only non-losing move (perpetual, 0cp); all 29 other legal moves lose (most to ma
 model puts 56.5% on Qf8+ at T=1; chance of a losing move is 44% at T=1.0, 37% at 0.8,
 7% at 0.2, 0.5% at 0.1. In the game it sampled Bd5 at 0.8 and was mated. Animation in
 `plot/temperature-slider/`. Results: `output/temperature-probe-20261027/`.
+
+## 2026-10-27 · blunders per game, controlled temperature sweep and RL head-to-head
+
+Graded the Sep 21 temperature sweep (champion `plain/games-15m/l16_best.pt` vs SF1500, 400 games per temperature) and the Sep 28 RL vs champion head-to-head at 0.2 (1,000 games) with the Lichess blunder rule (Stockfish 15.1, 1M nodes, workspace2 Modal, `scratch/modal_lichess_blunders.py::benchmark`, output `output/benchmark-blunders-20261027/`).
+
+Champion blunders per game (±95%) / score: T0.0 1.82±0.21 / 75%, T0.2 1.88±0.24 / 77%, T0.4 2.27±0.26 / 68%, T0.6 2.42±0.27 / 63%, T0.8 3.08±0.28 / 50%, T1.0 3.71±0.30 / 35%. SF1500 blunders rise from 2.06 to 3.26 over the same range (games get longer and messier). Head-to-head at 0.2: RL 3.11±0.16 vs champion 3.17±0.16, RL score 52.4%.
+
+Conclusion: with model and opponent fixed, 0.8 → 0.2 alone removes about 1.2 blunders per game. RL does not change the blunder rate. This confirms that temperature, not the RL model, drove the Sep 22 Lichess jump. Added as the fourth section of `plot/lichess-blunders-by-period/`.
