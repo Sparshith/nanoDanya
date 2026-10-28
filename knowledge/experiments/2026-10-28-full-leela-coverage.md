@@ -1,7 +1,8 @@
 # Full Leela coverage, mixed L16
 
-Status: preparation running on October 28. User authorized training on all existing
-Leela training data with a new $100 total compute cap. Results pending.
+Status: dataset audit passed on October 28; GPU preflight running. User authorized
+training on all existing Leela training data with a new $100 total compute cap.
+Results pending.
 
 The earlier mixed run sampled windows with replacement: 2.80B supervised Leela
 tokens at 200k updates and 4.20B at 300k, against a 6.894B-token training corpus.
@@ -16,6 +17,9 @@ for that pass; it is not an isolated data-size ablation.
 - All 52,146,724 Leela training games. Validation remains held out. Shuffle a
   verified partition without replacement; supervise every move and EOS exactly
   once. BOS is context, not a prediction target.
+- Audit: 6,894,059,576 corpus tokens, 6,841,912,852 supervised targets,
+  15,621,668 packed windows, 488,178 updates. Zero excluded games. The existing
+  cleaned training corpus contains no games exceeding 512 input tokens.
 - Pack adjacent complete games into windows. Games exceeding the context limit
   retain every target through overlapping windows with up to 256 preceding context
   tokens on continuation segments. Mask repeated context targets; exclude no games.
