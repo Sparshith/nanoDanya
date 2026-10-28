@@ -1,8 +1,8 @@
 # Full Leela coverage, mixed L16
 
-Status: dataset audit passed on October 28; GPU preflight running. User authorized
-training on all existing Leela training data with a new $100 total compute cap.
-Results pending.
+Status: dataset audit and GPU preflight passed on October 28; training pipeline
+launched. User authorized training on all existing Leela training data with a new
+$100 total compute cap. Results pending.
 
 The earlier mixed run sampled windows with replacement: 2.80B supervised Leela
 tokens at 200k updates and 4.20B at 300k, against a 6.894B-token training corpus.
@@ -48,8 +48,14 @@ Ten local tests passed, including exact coverage, partial batches, long games,
 identical interrupted/uninterrupted training and failure to label a budget-stopped
 checkpoint complete. An additional 100 randomized coverage cases passed.
 
+H100 preflight: 0.11655 seconds/update, 56,898 seconds (15.8h) projected training;
+63,788 seconds (17.7h) with 10% margin and 1,200 seconds overhead. The 64 temporary
+updates were discarded. Initial weights match the successful mixed 200k run.
+
 Local receipts: `output/leela-full-20261028/`.
 Remote receipts: `/data/experiments/leela-full-20261028/` on `nanodanya-data`.
 Checkpoints: `/data/checkpoints/plain/leela-full-20261028/`.
+Training app: https://modal.com/apps/workspace2/main/ap-dTLXMYpBm0epu2hkCqOsGq
+Pipeline call: `fc-01M6059KA40XZ80B3WNEXVBW0H`.
 Runner: `scratch/modal_leela_full.py`; trainer: `scratch/leela_full_train.py`;
 sampler: `training/coverage_batches.py`.
