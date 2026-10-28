@@ -10,6 +10,8 @@ def day_key(now):
 
 
 def limits(now, state=None):
+    if state and state.get("daily"):
+        return state["daily"]["max_games"], state["daily"]["gap_seconds"], 10
     if state and (state.get("trial") or state.get("bullet_trial")):
         return (state.get("trial") or state["bullet_trial"])["target"], 10, 10
     return 5, 7200, 300
@@ -17,6 +19,10 @@ def limits(now, state=None):
 
 def games_today(state, now):
     return sum(day_key(start) == day_key(now) for start in state["games"].values())
+
+
+def games_last_day(state, now):
+    return sum(start > now - 86400 for start in state["games"].values())
 
 
 def trial_key(speed):
@@ -28,10 +34,13 @@ def record_game(state, game_id, started_at, speed="rapid"):
     trial = state.get(trial_key(speed))
     if trial and started_at >= trial["started_at"]:
         trial["games"].setdefault(game_id, {"started_at": started_at, "status": "started"})
+    evaluation = state.get("evaluation")
+    if evaluation and started_at >= evaluation["started_at"]:
+        evaluation["games"].setdefault(game_id, {"started_at": started_at, "status": "started", "speed": speed})
 
 
 def finish_trial_game(state, game_id, result):
-    for key in ("trial", "bullet_trial"):
+    for key in ("trial", "bullet_trial", "evaluation"):
         trial = state.get(key)
         if trial and game_id in trial["games"]:
             trial["games"][game_id].update({key: result[key] for key in ("status", "winner") if key in result})
@@ -50,6 +59,11 @@ def trial_counts(state, speed="rapid"):
 
 def can_start(state, now, speed="rapid"):
     cap, gap, _ = limits(now, state)
+    if now < state.get("challenge_cooldowns", {}).get("*", 0):
+        return False
+    if state.get("daily"):
+        return (speed == "rapid" and games_last_day(state, now) < cap
+                and now - max(state["games"].values(), default=0) >= gap)
     if state.get("trial") or state.get("bullet_trial"):
         trial = state.get(trial_key(speed))
         if not trial:

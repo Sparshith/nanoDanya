@@ -5,28 +5,28 @@ This is the production Lichess listener for nanoDanya.
 The listener is a cheap Modal function that stays connected to Lichess and calls
 the separate nanoDanya model endpoint only when it needs to make a move.
 
-The endpoint serves `grpo/own-games-exact-10k-20260918`, selected step 5,500,
-since 2026-09-19. Move requests now use temperature **0.2**.
-A rapid trial (`budget.trial` in Modal Dict `nanodanya-lichess-state`) targets
-100 completed rated 10+0 games, with up to 10 games simultaneously. Aborts do not
-count. Completed plus ongoing games reserve the total budget. Incoming challenges
-must also be rated 10+0 and share the same budget and concurrency cap. The trial
-state, baseline, game outcomes, and final rapid rating persist in the Dict.
-Startup reconciles against Lichess history. When a trial completes, it moves to
-`budget.past_trials` after its final rating is recorded, and the bot returns to
-normal limits: five games per IST day with a two-hour gap. One listener owns all
-games; its matchmaker checks every 10 seconds, keeps only one pending challenge,
-and respects Lichess rate-limit cooldowns.
+The endpoint serves the L16 whole-game checkpoint
+`plain/whole-game-20261016/l16_final` (step 250,000), deployed on 2026-10-19.
+Move requests use temperature **0.2**, legal masking, and canonical SAN history.
+The server verifies the checkpoint SHA-256 before loading it and uses the same
+GPT implementation as training.
 
-The current trial started 2026-09-29 at **1525 rapid, 650 rated rapid games**.
-The earlier 0.2 trials (rapid 78/100, 1412 -> 1525; bullet 28/100) are in
-`past_trials`. A `bullet_trial` key (seeded from `bullet_config`) runs 1+1 bullet
-the same way, one game at a time with a warm-up inference request first; none
-is set now.
+`budget.daily` in Modal Dict `nanodanya-lichess-state` targets up to **100 game
+starts per rolling 24 hours**, with five simultaneous rated 10+0 rapid games and
+at least 60 seconds between starts. Incoming challenges share these limits and
+must also be rated 10+0. Aborted games still count toward the daily start cap.
+Lichess cooldowns take precedence. The listener reconciles recent game history
+on startup so restarts cannot reset the allowance.
+
+`budget.evaluation` stores the model identity, game IDs and outcomes, and rapid
+rating snapshots. This rollout started at **1566 rapid after 832 rated rapid
+games**. The latest rating is refreshed after completed games; daily snapshots
+use IST dates. Previous trials remain under `budget.past_trials`. Removing
+`budget.daily` restores the normal five-game daily limit and two-hour spacing.
 
 Inference accepts 10 concurrent inputs on one T4; the HTTP endpoint awaits the
 remote model asynchronously. Ten simultaneous legal-move requests are checked
-before enabling the trial. Serving and listener deployments use the
+before enabling matchmaking. Serving and listener deployments use the
 `sparshithsampath` Modal profile (the benchmark sweep used `second` / `workspace2`).
 Failed move submissions close the game stream and reconnect after five seconds
 to read the current position before retrying (65 seconds for HTTP 429). An

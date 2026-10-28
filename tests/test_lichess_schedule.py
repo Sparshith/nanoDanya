@@ -1,7 +1,7 @@
 from datetime import datetime
 import json
 
-from lichess_bot.schedule import TIMEZONE, can_start, challenge_cooldown, finish_trial_game, games_today, limits, record_game, trial_counts
+from lichess_bot.schedule import TIMEZONE, can_start, challenge_cooldown, finish_trial_game, games_last_day, games_today, limits, record_game, trial_counts
 
 
 def at(value):
@@ -162,3 +162,47 @@ def test_unconfigured_bullet_does_not_start():
     now = at("2026-09-22T12:00:00")
     assert not can_start(trial_state(now), now, "bullet")
     assert not can_start({"games": {}}, now, "bullet")
+
+
+def daily_state():
+    return {"games": {}, "daily": {"max_games": 100, "gap_seconds": 60, "max_concurrent": 5}}
+
+
+def test_daily_limit_survives_restart_and_does_not_reset_at_midnight():
+    now = at("2026-10-19T23:59:00")
+    state = daily_state()
+    for i in range(100):
+        record_game(state, str(i), now - 60 - i)
+        finish_trial_game(state, str(i), {"status": "aborted"})
+    state = json.loads(json.dumps(state))
+    assert games_today(state, now + 120) == 0
+    assert games_last_day(state, now + 120) == 100
+    assert not can_start(state, now + 120)
+    assert can_start(state, now + 86400)
+
+
+def test_daily_mode_enforces_rapid_spacing_and_global_cooldowns():
+    now = at("2026-10-19T12:00:00")
+    state = daily_state()
+    assert limits(now, state) == (100, 60, 10)
+    assert can_start(state, now)
+    assert not can_start(state, now, "bullet")
+    assert not can_start(state, now, "classical")
+    record_game(state, "game", now)
+    assert not can_start(state, now + 59)
+    assert can_start(state, now + 60)
+    state["challenge_cooldowns"] = {"*": now + 5000}
+    assert not can_start(state, now + 60)
+    assert can_start(state, now + 5000)
+
+
+def test_evaluation_tracks_only_new_model_games_once():
+    now = at("2026-10-19T12:00:00")
+    state = daily_state()
+    state["evaluation"] = {"started_at": now, "games": {}}
+    record_game(state, "old", now - 1)
+    record_game(state, "old", now + 1)
+    record_game(state, "new", now + 2)
+    record_game(state, "new", now + 3)
+    finish_trial_game(state, "new", {"status": "mate", "winner": "white"})
+    assert state["evaluation"]["games"] == {"new": {"started_at": now + 2, "status": "mate", "winner": "white", "speed": "rapid"}}

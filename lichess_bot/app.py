@@ -6,7 +6,7 @@ and calls the separate nanoDanya model endpoint when it is our turn.
 
 import modal
 
-from lichess_bot.schedule import can_start, challenge_cooldown, finish_trial_game, games_today, limits, record_game, trial_counts, trial_key
+from lichess_bot.schedule import can_start, challenge_cooldown, day_key, finish_trial_game, games_last_day, games_today, limits, record_game, trial_counts, trial_key
 
 app = modal.App("nanodanya-lichess-bot")
 
@@ -85,7 +85,7 @@ def run_bot(dry_run: bool = False):
             print(f"Logged in as: {self.username}")
             print(f"Move temperature: {TEMPERATURE}")
 
-        def _save_progress(self):
+        def _save_progress(self, finished=False):
             for speed in TRIAL_CLOCKS:
                 trial = self.state.get(trial_key(speed))
                 if not trial:
@@ -96,6 +96,18 @@ def run_bot(dry_run: bool = False):
                     trial["finished_at"] = time.time()
                     print(f"{speed} trial complete; no further {speed} games will be started")
             state_store["budget"] = self.state
+            if finished and self.state.get("evaluation"):
+                try:
+                    now = time.time()
+                    rapid = self.client.account.get()["perfs"]["rapid"]
+                    evaluation = self.state["evaluation"]
+                    evaluation["latest_rapid"] = rapid
+                    evaluation["rating_updated_at"] = now
+                    evaluation.setdefault("daily_ratings", {})[day_key(now)] = rapid
+                    state_store["budget"] = self.state
+                    print(f"Rapid rating: {rapid['rating']} (baseline {evaluation['baseline_rapid']['rating']})")
+                except Exception as error:
+                    print(f"Could not fetch current rating: {error}")
             for speed in TRIAL_CLOCKS:
                 trial = self.state.get(trial_key(speed))
                 field = "final_" + speed
@@ -112,7 +124,8 @@ def run_bot(dry_run: bool = False):
                     print(f"{speed} trial archived; back to normal limits")
 
         def _at_capacity(self):
-            return len(self.active_games) >= self.state.get("trial", {}).get("max_concurrent", 1)
+            config = self.state.get("daily") or self.state.get("trial", {})
+            return len(self.active_games) >= config.get("max_concurrent", 1)
 
         def matchmake(self):
             with self.lock:
@@ -218,7 +231,13 @@ def run_bot(dry_run: bool = False):
                 self.client.bots.decline_challenge(challenge_id, reason="tooFast")
                 return
 
-            if self.state.get("trial") or self.state.get("bullet_trial"):
+            if self.state.get("daily"):
+                clock = challenge.get("timeControl", {})
+                if (speed != "rapid" or not challenge.get("rated")
+                        or (clock.get("limit"), clock.get("increment")) != TRIAL_CLOCKS["rapid"]):
+                    self.client.bots.decline_challenge(challenge_id, reason="later")
+                    return
+            elif self.state.get("trial") or self.state.get("bullet_trial"):
                 clock = challenge.get("timeControl", {})
                 if (not self.state.get(trial_key(speed)) or not challenge.get("rated")
                         or (clock.get("limit"), clock.get("increment")) != TRIAL_CLOCKS.get(speed)):
@@ -228,7 +247,7 @@ def run_bot(dry_run: bool = False):
                 self.client.bots.decline_challenge(challenge_id, reason="tooFast")
                 return
 
-            if self.draining or self._at_capacity() or self.pending_challenge_id or not can_start(self.state, time.time(), speed):
+            if state_store.get("drain", False) or self.draining or self._at_capacity() or self.pending_challenge_id or not can_start(self.state, time.time(), speed):
                 self.client.bots.decline_challenge(challenge_id, reason="later")
                 return
             if speed == "bullet":
@@ -247,7 +266,7 @@ def run_bot(dry_run: bool = False):
                 record_game(self.state, game_id, time.time(), speed)
                 self._save_progress()
                 self.pending_challenge_id = None
-                print(f"Today's games: {games_today(self.state, time.time())}")
+                print(f"Games in last 24 hours: {games_last_day(self.state, time.time())}")
                 thread = threading.Thread(target=self._safe_handle_game, args=(game_id,), daemon=True)
                 thread.start()
 
@@ -275,7 +294,7 @@ def run_bot(dry_run: bool = False):
                         finish_trial_game(self.state, game_id, result)
                     self.active_games.discard(game_id)
                     self.state["last_game_finish"] = time.time()
-                    self._save_progress()
+                    self._save_progress(finished=True)
 
     token = os.environ["LICHESS_BOT_TOKEN"]
     bot = NanoDanyaBot(token)
@@ -287,8 +306,9 @@ def run_bot(dry_run: bool = False):
                 "cap": cap, "gap_seconds": gap, "tick_seconds": tick,
                 "temperature": TEMPERATURE, "trial": bot.state.get("trial"),
                 "bullet_trial": bot.state.get("bullet_trial"),
+                "daily": bot.state.get("daily"), "games_last_day": games_last_day(bot.state, time.time()),
                 "ongoing_games": [game["gameId"] for game in ongoing]}
-    bot._save_progress()
+    bot._save_progress(finished=True)
     for game in ongoing:
         bot.start_game(game["gameId"], game.get("speed", "rapid"))
 
@@ -324,6 +344,8 @@ def run_bot(dry_run: bool = False):
     deadline = time.time() + RUN_SECONDS
     while time.time() < deadline:
         time.sleep(5)
+        if state_store.get("drain", False):
+            bot.draining = True
         if bot.draining and not bot.active_games:
             break
     with bot.lock:
