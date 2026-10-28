@@ -13,14 +13,20 @@ ignore = modal.FilePatternMatcher.from_file(".modalignore")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("ca-certificates", "curl")
+    .apt_install("ca-certificates", "curl", "bzip2", "build-essential")
     .run_commands(
+        # fairy_sf_14 is what releases/latest served for every earlier benchmark; pinned so the sf1500 anchor cannot drift.
         "curl -L --fail -o /usr/local/bin/fairy-stockfish "
-        "https://github.com/fairy-stockfish/Fairy-Stockfish/releases/latest/download/fairy-stockfish-largeboard_x86-64",
+        "https://github.com/fairy-stockfish/Fairy-Stockfish/releases/download/fairy_sf_14/fairy-stockfish-largeboard_x86-64",
+        "echo '41b8b4d539adfd9924929ee4a948d1a37dd1e9beaa535a811cb5e7fee9e4cb99  /usr/local/bin/fairy-stockfish' | sha256sum -c",
         "chmod +x /usr/local/bin/fairy-stockfish",
+        "curl -L --fail -o /tmp/bayeselo.tar.bz2 https://www.remi-coulom.fr/Bayesian-Elo/bayeselo.tar.bz2",
+        "echo '95f3d32381932ba9ccd1ab221ff33273cd3e48abedcfeba4c4f3f5a9b303a2a4  /tmp/bayeselo.tar.bz2' | sha256sum -c",
+        "cd /tmp && tar -xjf bayeselo.tar.bz2 && cd BayesElo && make bayeselo && cp bayeselo /usr/local/bin/",
     )
     .pip_install(
         "numpy",
+        "onnxruntime==1.23.2",
         "torch==2.5.1+cu124",
         "python-chess",
         "requests",
@@ -31,11 +37,26 @@ image = (
 )
 
 volume = modal.Volume.from_name("nanodanya-data")
+TOURNAMENT_DIR = "/data/tournament/games"
+
+
+@app.function(image=image, volumes={"/data": volume})
+def save_tournament_games(name: str, records: list[dict]) -> str:
+    import json
+    from pathlib import Path
+
+    path = Path(TOURNAMENT_DIR) / f"{name}.jsonl"
+    if path.exists():
+        raise FileExistsError(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(record, sort_keys=True) + "\n" for record in records))
+    volume.commit()
+    return str(path)
 
 
 @app.function(
     image=image,
-    gpu=GPU,
+    gpu=None if GPU == "none" else GPU,
     max_containers=int(os.environ.get("MODAL_MAX_CONTAINERS", "8")),
     cpu=float(os.environ.get("MODAL_CPU", "1")),
     retries=int(os.environ.get("MODAL_RETRIES", "0")),
@@ -62,6 +83,8 @@ def bench(subcommand: str, flags: dict):
         if isinstance(value, bool):
             if value:
                 cmd.append(flag)
+        elif isinstance(value, list):
+            cmd += [flag, *map(str, value)]
         else:
             cmd += [flag, str(value)]
 
@@ -156,7 +179,7 @@ def main(
     allow_eos: bool = False,
     top_illegal: int = 20,
     games: int = 50,
-    temperature: float = 0.8,
+    temperature: float = 0.2,
     batch_size: int = 0,
     max_plies: int = 200,
     shards: int = 1,
@@ -176,6 +199,12 @@ def main(
     write_positions: bool = False,
     output: str = "",
     shard_output_dir: str = "",
+    players: str = "",
+    schedule: str = "first",
+    openings: int = 100,
+    tag: str = "",
+    anchor: str = "sf1500",
+    anchor_elo: int = 1500,
 ):
     import base64
     import json
@@ -257,6 +286,43 @@ def main(
             png_path.write_bytes(base64.b64decode(result["png_b64"]))
             print(f"wrote plot {png_path}")
         print_summaries(result["records"])
+        print(f"wrote {path}")
+        return
+
+    if mode == "tournament":
+        if not tag:
+            raise ValueError("--tag names the tournament file on the volume")
+        splits = _split_games(openings, shards)
+        base = {
+            "players": players.split(","),
+            "schedule": schedule,
+            "stockfish": stockfish,
+            "stockfish_depth": stockfish_depth or 1,
+            "temperature": 0.0,
+            "batch_size": batch_size or 64,
+        }
+        print(f"Tournament {tag}: {players} ({schedule}), {openings} openings x 2 colors, {len(splits)} shard(s)")
+        results = list(bench.starmap(
+            ("tournament", base | {"openings": count, "opening_offset": offset}) for offset, count in splits
+        ))
+        records = [r for result in results for r in result["records"] if r["type"] == "game"]
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        print(f"saved {save_tournament_games.remote(f'{tag}_{stamp}', records)}")
+        for result in results:
+            print_summaries(result["records"])
+        path = out_path(f"tournament_{tag}")
+        write_records(path, [{"type": "run", "schema_version": 1, "command": "modal_tournament",
+                              "config": base | {"openings": openings, "shards": shards, "tag": tag}}, *records])
+        print(f"wrote {path}")
+        return
+
+    if mode == "elo":
+        result = bench.remote("elo", {"games_dir": TOURNAMENT_DIR, "anchor": anchor, "anchor_elo": anchor_elo,
+                                      "bayeselo": "/usr/local/bin/bayeselo"})
+        path = out_path("elo")
+        write_records(path, result["records"])
+        for record in result["records"][1:]:
+            print(f"{record['player']:>24} {record['elo']:>5} +{record['ci_plus']}/-{record['ci_minus']}  games={record['games']}")
         print(f"wrote {path}")
         return
 

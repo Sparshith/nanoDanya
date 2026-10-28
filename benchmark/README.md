@@ -3,6 +3,11 @@
 `benchmark/run.py` is the canonical benchmark entrypoint. Do not add one-off
 benchmark scripts under `benchmark/`; add a subcommand here instead.
 
+Use temperature **0.2** for new sampled-game and temperature-dependent policy
+evaluations, with the same temperature for every compared checkpoint. Local and
+Modal game benchmarks default to 0.2. Historical runs retain their recorded
+temperatures; compare them with new runs only at matching settings.
+
 Benchmarking is split into four layers. Keep these separate when interpreting
 results:
 
@@ -212,6 +217,30 @@ Modal puzzle benchmark (defaults to the champion checkpoint):
 modal run modal_benchmark.py --mode puzzles --per-bin 400
 ```
 
+### Tournament Elo
+
+Follows DeepMind's searchless_chess protocol. Games start from the 200 fixed
+openings in `benchmark/openings.tsv`, and each opening is played with both
+colors. Models play greedy (temperature 0) with legal masking. Games end on
+checkmate, stalemate, threefold repetition or the fifty-move rule. A game also
+ends when a 10 ms full-strength Fairy-Stockfish eval exceeds 1300 cp or finds
+mate. BayesElo (`mm`, `exactdist`) fits all games on the volume at once and
+pins **sf1500 = 1500**. The anchor is Fairy-Stockfish `fairy_sf_14` (pinned by
+hash) with `UCI_Elo=1500` at depth 1. It is not a human or Lichess rating.
+
+Calibrate the Stockfish pool once, then play each new entry against it:
+
+```bash
+MODAL_GPU=none modal run modal_benchmark.py --mode tournament \
+  --players sf1000,sf1500,sf2000 --schedule all --openings 200 --shards 10 --tag pool-sf-depth1
+MODAL_GPU=none MODAL_CPU=4 modal run modal_benchmark.py --mode tournament \
+  --players my-entry=/data/path/model_q8.onnx,sf1000,sf1500,sf2000 --openings 200 --shards 20 --tag my-entry
+MODAL_GPU=none modal run modal_benchmark.py --mode elo
+```
+
+Games accumulate in `/data/tournament/games/` and every `elo` run refits all
+of them. Games with an out-of-vocabulary opponent move are unscored.
+
 ## Interpretation
 
 - Raw metrics measure model behavior before runtime fixes.
@@ -229,3 +258,7 @@ rate as the primary strength metric.
 Generated game logs, plots, and reports are artifacts, not source. They live in
 `benchmark/results/` (gitignored). Keep durable findings in `knowledge/`
 (`log.md` and `experiments/`) as summarized markdown, not as raw run output.
+
+Challenge scoring uses `--no-legal-mask` on both `puzzles` and `tournament`, with temperature 0. The raw highest-scoring token must name a legal SAN move; otherwise the game is an immediate loss or the puzzle fails. Omitted check/mate suffixes remain accepted. The default masked mode preserves earlier research runs. Keep unmasked games in a separate directory and rating pool; the old baseline Elo and puzzle score are not unmasked results.
+
+The public starter and browser checker are maintained in [nanoDanya-challenge](https://github.com/Sparshith/nanoDanya-challenge). Research checkpoints can be exported independently with `python -m inference.export_onnx --checkpoint student.pt --output student.onnx --int4`; the exporter uses checkpoint tokenizer metadata, or an explicit `--vocabulary` JSON file.

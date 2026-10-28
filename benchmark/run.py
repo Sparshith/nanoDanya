@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import pickle
 import random
 import re
 import statistics
+import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -19,6 +22,7 @@ from typing import Iterable
 
 import chess
 import chess.engine
+import chess.pgn
 import numpy as np
 import requests
 import torch
@@ -35,7 +39,7 @@ from chess_token_utils import (
     token_is_legal_prediction,
     under_disambiguated_legal_matches,
 )
-from chess_inference import choose_move_from_logits, legal_token_ids, token_for_id
+from chess_inference import choose_move_from_logits, legal_token_ids, parse_san_prediction, token_for_id
 from inference.kv_cache import KVCache
 from model_loading import load_model
 from model_registry import model_ref_help
@@ -304,6 +308,10 @@ def last_logits_for_prefixes(
     device: str,
     batch_size: int,
 ) -> Iterable[tuple[int, torch.Tensor]]:
+    if hasattr(model, "last_logits"):
+        for index, prefix in enumerate(prefixes):
+            yield index, model.last_logits(prefix)
+        return
     for start in range(0, len(prefixes), batch_size):
         batch = prefixes[start:start + batch_size]
         max_len = max(len(prefix) for prefix in batch)
@@ -906,9 +914,11 @@ def configure_stockfish_strength(engine: chess.engine.SimpleEngine, requested_el
 
 def apply_prompt(board: chess.Board, prompt_moves: list[str], prefixes: dict[str, list[int]], tokenizers: dict[str, dict]) -> None:
     for san in prompt_moves:
-        board.push_san(san)
+        move = board.parse_san(san)
+        canonical = board.san(move)
+        board.push(move)
         for name, stoi in tokenizers.items():
-            token_id = resolve_token_id(stoi, san)
+            token_id = resolve_token_id(stoi, canonical)
             if token_id is None:
                 raise KeyError(f"Prompt token {san!r} is not in {name} tokenizer")
             prefixes[name].append(token_id)
@@ -1099,9 +1109,9 @@ def command_games(args: argparse.Namespace) -> None:
 
                 for state in opponent_turns:
                     result = engine.play(state.board, limit)
-                    san = strip_san(state.board.san(result.move))
+                    san = state.board.san(result.move)
                     state.board.push(result.move)
-                    state.moves.append(san)
+                    state.moves.append(strip_san(san))
                     token_id = resolve_token_id(stoi, san)
                     if token_id is None:
                         finish_game(state, "opponent_oov")
@@ -1268,7 +1278,6 @@ def apply_model_choice(
     if next_id is None or token is None:
         finish_game(state, f"{model_name}_no_move")
         return
-    state.prefixes[model_name].append(next_id)
     if token == "<eos>":
         if allow_eos:
             finish_game(state, f"{model_name}_eos")
@@ -1276,16 +1285,15 @@ def apply_model_choice(
             finish_game(state, f"{model_name}_unexpected_eos")
         return
     try:
-        state.board.push_san(token)
+        move = state.board.parse_san(token)
+        canonical = state.board.san(move)
     except ValueError:
         finish_game(state, f"{model_name}_illegal_played")
         return
-    played = strip_san(token)
-    state.moves.append(played)
+    state.board.push(move)
+    state.moves.append(strip_san(canonical))
     for other_name, prefix in state.prefixes.items():
-        if other_name == model_name:
-            continue
-        other_id = resolve_token_id(tokenizers[other_name], played)
+        other_id = resolve_token_id(tokenizers[other_name], canonical)
         if other_id is None:
             finish_game(state, f"{other_name}_oov")
             return
@@ -1547,10 +1555,11 @@ def solve_puzzles(
     device: str,
     batch_size: int,
     max_len: int,
+    legal_mask: bool = True,
 ) -> None:
     """Batched, multi-step solve. Each round every live puzzle is at a solver turn; we predict its
     move, and if correct apply it plus the forced opponent reply, then re-batch the survivors."""
-    eos_id = stoi["<eos>"]
+    eos_id = stoi.get("<eos>", stoi["<bos>"])
     for _ in range(64):
         active = [s for s in states if s.alive]
         if not active:
@@ -1561,10 +1570,10 @@ def solve_puzzles(
         ):
             s = active[idx]
             next_id, token = choose_move_from_logits(
-                logits, s.board, stoi, itos, temperature=0.0, allow_eos=False, legal_mask=True
+                logits, s.board, stoi, itos, temperature=0.0, allow_eos=False, legal_mask=legal_mask
             )
             expected = s.board.parse_uci(s.sol[s.ptr])
-            model_move = s.board.parse_san(token) if token else None
+            model_move = parse_san_prediction(s.board, token)
             correct = model_move == expected
             if not correct and model_move is not None:
                 probe = s.board.copy(stack=False)
@@ -1629,7 +1638,7 @@ def maybe_plot_puzzle_curve(by_bin: list[dict], path: str) -> bool:
 @torch.inference_mode()
 def command_puzzles(args: argparse.Namespace) -> None:
     device = resolve_device(args.device)
-    model, config, stoi, itos = load_model(args.model, device)
+    model, config, stoi, itos = load_tournament_model(args.model, device)
     max_len = config.sequence_len
 
     items, _bin_counts, scanned = sample_puzzles_by_rating(
@@ -1652,7 +1661,8 @@ def command_puzzles(args: argparse.Namespace) -> None:
         states.append(state)
     print(f"built {len(states)} solvable puzzles, skipped {skipped}", flush=True)
 
-    solve_puzzles(states, model, stoi, itos, device=device, batch_size=args.batch_size, max_len=max_len)
+    solve_puzzles(states, model, stoi, itos, device=device, batch_size=args.batch_size, max_len=max_len,
+                  legal_mask=args.legal_mask)
 
     agg: dict[int, dict] = {}
     for s in states:
@@ -1729,6 +1739,205 @@ def command_summarize(args: argparse.Namespace) -> None:
     if games:
         print("\ncombined games:")
         print_summary_record(summarize_game_records(games))
+
+
+@dataclass
+class TournamentGame:
+    game_num: int
+    white: str
+    black: str
+    eco: str
+    opening: list[str]
+    board: chess.Board
+    prefixes: dict[str, list[int]]
+    finished: bool = False
+    termination: str = ""
+    result: str = "*"
+
+
+def load_openings(path: str) -> list[tuple[str, list[str]]]:
+    lines = [line for line in Path(path).read_text().splitlines() if line and not line.startswith("#")]
+    return [(eco, moves.split()) for eco, _, moves in (line.split("\t") for line in lines[1:])]
+
+
+def load_tournament_model(ref: str, device: str):
+    if ref.endswith(".onnx"):
+        from inference.onnx_policy import OnnxPolicy
+
+        model = OnnxPolicy(ref, device)
+        return model, model.config, model.stoi, model.itos
+    return load_model(ref, device)
+
+
+def finish_tournament_game(game: TournamentGame, result: str, termination: str) -> None:
+    game.finished, game.result, game.termination = True, result, termination
+
+
+def push_tournament_move(game: TournamentGame, move: chess.Move, models: dict) -> None:
+    san = game.board.san(move)
+    game.board.push(move)
+    for name in {game.white, game.black} & models.keys():
+        token_id = resolve_token_id(models[name][2], san)
+        if token_id is None:
+            finish_tournament_game(game, "*", f"{name}_oov")
+            return
+        game.prefixes[name].append(token_id)
+
+
+def check_tournament_game(game: TournamentGame, judge, args: argparse.Namespace, models: dict) -> None:
+    if game.finished:
+        return
+    outcome = game.board.outcome(claim_draw=True)
+    if outcome is not None:
+        finish_tournament_game(game, outcome.result(), outcome.termination.name.lower())
+        return
+    # DeepMind searchless_chess adjudication: a quick full-strength eval ends lopsided games.
+    score = judge.analyse(game.board, chess.engine.Limit(time=args.adjudicate_time))["score"].white()
+    if score.is_mate() or abs(score.score()) > args.adjudicate_cp:
+        finish_tournament_game(game, "1-0" if score > chess.engine.Cp(0) else "0-1", "adjudicated")
+    elif len(game.board.move_stack) >= args.max_plies:
+        finish_tournament_game(game, "1/2-1/2", "max_plies")
+    elif any(len(game.prefixes[name]) >= models[name][1].sequence_len for name in game.prefixes):
+        finish_tournament_game(game, "1/2-1/2", "context_limit")
+
+
+def tournament_game_record(game: TournamentGame) -> dict:
+    pgn = chess.pgn.Game.from_board(game.board)
+    pgn.headers.update({"Event": "nanoDanya tournament", "White": game.white, "Black": game.black,
+                        "Result": game.result, "ECO": game.eco, "Termination": game.termination})
+    return {
+        "type": "game",
+        "schema_version": SCHEMA_VERSION,
+        "game_num": game.game_num,
+        "white": game.white,
+        "black": game.black,
+        "eco": game.eco,
+        "opening_plies": len(game.opening),
+        "result": game.result,
+        "termination": game.termination,
+        "num_plies": len(game.board.move_stack),
+        "pgn": str(pgn),
+    }
+
+
+@torch.inference_mode()
+def command_tournament(args: argparse.Namespace) -> None:
+    device = resolve_device(args.device)
+    openings = load_openings(args.openings_file)[args.opening_offset:args.opening_offset + args.openings]
+    names, models, engines = [], {}, {}
+    for spec in args.players:
+        if re.fullmatch(r"sf\d+", spec):
+            engine = chess.engine.SimpleEngine.popen_uci(args.stockfish, timeout=args.stockfish_timeout)
+            configure_stockfish_strength(engine, int(spec[2:]))
+            engines[spec] = engine
+            names.append(spec)
+            continue
+        name, _, ref = spec.partition("=")
+        if not ref:
+            raise ValueError(f"Model players need name=ref, got {spec!r}")
+        models[name] = load_tournament_model(ref, device)
+        names.append(name)
+    pairs = [(names[0], other) for other in names[1:]] if args.schedule == "first" else list(itertools.combinations(names, 2))
+    judge = chess.engine.SimpleEngine.popen_uci(args.stockfish, timeout=args.stockfish_timeout)
+    limit = chess.engine.Limit(depth=args.stockfish_depth)
+
+    games = []
+    for (a, b), (index, (eco, opening)) in itertools.product(pairs, enumerate(openings, start=args.opening_offset)):
+        for color, (white, black) in enumerate(((a, b), (b, a))):
+            game = TournamentGame(index * 2 + color, white, black, eco, opening, chess.Board(),
+                                  {name: [models[name][2]["<bos>"]] for name in (white, black) if name in models})
+            for san in opening:
+                push_tournament_move(game, game.board.parse_san(san), models)
+            check_tournament_game(game, judge, args, models)
+            games.append(game)
+
+    try:
+        while active := [game for game in games if not game.finished]:
+            turns = defaultdict(list)
+            for game in active:
+                turns[game.white if game.board.turn else game.black].append(game)
+            for name, turn in turns.items():
+                if name in engines:
+                    for game in turn:
+                        push_tournament_move(game, engines[name].play(game.board, limit).move, models)
+                    continue
+                model, _, stoi, itos = models[name]
+                for idx, logits in last_logits_for_prefixes(model, [game.prefixes[name] for game in turn],
+                                                            pad_id=stoi.get("<eos>", stoi["<bos>"]), device=device, batch_size=args.batch_size):
+                    game = turn[idx]
+                    _, token = choose_move_from_logits(logits, game.board, stoi, itos,
+                                                       temperature=args.temperature, allow_eos=False, legal_mask=args.legal_mask)
+                    move = parse_san_prediction(game.board, token)
+                    if move is None:
+                        finish_tournament_game(game, "0-1" if game.board.turn else "1-0", f"{name}_illegal")
+                    else:
+                        push_tournament_move(game, move, models)
+            for game in active:
+                check_tournament_game(game, judge, args, models)
+    finally:
+        for engine in [judge, *engines.values()]:
+            engine.quit()
+
+    records = [tournament_game_record(game) | {"legal_mask": args.legal_mask} for game in games]
+    summary = {
+        "type": "tournament_summary",
+        "schema_version": SCHEMA_VERSION,
+        "games": len(records),
+        "pairs": {f"{a} vs {b}": dict(Counter(
+            "draw" if r["result"] == "1/2-1/2" else "unscored" if r["result"] == "*"
+            else "a_win" if (r["result"] == "1-0") == (r["white"] == a) else "b_win"
+            for r in records if {r["white"], r["black"]} == {a, b})) for a, b in pairs},
+        "terminations": dict(Counter(r["termination"] for r in records)),
+        "avg_num_plies": statistics.mean(r["num_plies"] for r in records) if records else None,
+    }
+    write_jsonl(args.output, [run_record("tournament", args, {"device": device}), *records, summary])
+    print_summary_record(summary)
+    print(f"wrote {args.output}")
+
+
+def command_elo(args: argparse.Namespace) -> None:
+    records = [
+        json.loads(line)
+        for path in sorted(Path(args.games_dir).glob("*.jsonl"))
+        for line in path.read_text().splitlines()
+    ]
+    games = [r for r in records if r.get("type") == "game" and r["result"] != "*"]
+    if len({r.get("legal_mask", True) for r in games}) > 1:
+        raise ValueError("Masked and unmasked games must use separate Elo pools")
+    players = {r["white"] for r in games} | {r["black"] for r in games}
+    if args.anchor not in players:
+        raise ValueError(f"Anchor {args.anchor} has no scored games in {args.games_dir}")
+    with tempfile.NamedTemporaryFile("w", suffix=".pgn", delete=False) as pgn:
+        pgn.write("\n\n".join(r["pgn"] for r in games) + "\n")
+    # Same BayesElo session as DeepMind searchless_chess, then pin the anchor's rating.
+    commands = f"prompt off\nreadpgn {pgn.name}\nelo\nmm\nexactdist\noffset {args.anchor_elo} {args.anchor}\nratings\nx\nx\n"
+    output = subprocess.run([args.bayeselo], input=commands, capture_output=True, text=True, check=True).stdout
+    table = output[output.index("Rank Name"):].splitlines()[1:]
+    ratings = []
+    for line in table:
+        fields = line.split()
+        if len(fields) != 9 or not fields[0].isdigit():
+            break
+        _, player, elo, plus, minus, count, score, opponent, draws = fields
+        ratings.append({
+            "type": "elo_rating",
+            "schema_version": SCHEMA_VERSION,
+            "player": player,
+            "elo": int(elo),
+            "ci_plus": int(plus),
+            "ci_minus": int(minus),
+            "games": int(count),
+            "score": float(score.rstrip("%")) / 100,
+            "avg_opponent": int(opponent),
+            "draws": float(draws.rstrip("%")) / 100,
+        })
+    if len(ratings) != len(players):
+        raise ValueError(f"Parsed {len(ratings)} ratings for {len(players)} players:\n{output}")
+    extra = {"games": len(games), "unscored": sum(r.get("type") == "game" for r in records) - len(games)}
+    write_jsonl(args.output, [run_record("elo", args, extra), *ratings])
+    for rating in ratings:
+        print(f"{rating['player']:>24} {rating['elo']:>5} +{rating['ci_plus']}/-{rating['ci_minus']}  games={rating['games']}")
+    print(f"wrote {args.output}")
 
 
 def add_common_model_args(parser: argparse.ArgumentParser) -> None:
@@ -1817,7 +2026,7 @@ def build_parser() -> argparse.ArgumentParser:
     games.add_argument("--games", type=int, default=50)
     games.add_argument("--game-offset", type=int, default=0)
     games.add_argument("--max-plies", type=int, default=200)
-    games.add_argument("--temperature", type=float, default=0.8)
+    games.add_argument("--temperature", type=float, default=0.2)
     games.add_argument("--prompt", default="")
     games.add_argument("--seed", type=int, default=0)
     games.add_argument("--allow-eos", action="store_true")
@@ -1835,8 +2044,39 @@ def build_parser() -> argparse.ArgumentParser:
     puzzles.add_argument("--per-bin", type=int, default=400)
     puzzles.add_argument("--scan-cap", type=int, default=0, help="max ndjson lines to scan (0 = no cap)")
     puzzles.add_argument("--write-positions", action="store_true")
+    puzzles.add_argument("--legal-mask", action=argparse.BooleanOptionalAction, default=True,
+                         help="Mask illegal tokens; challenge scoring requires --no-legal-mask")
     puzzles.add_argument("--plot", default="", help="PNG path (defaults to output with .png)")
     puzzles.set_defaults(func=command_puzzles)
+
+    tournament = sub.add_parser("tournament", help="Games between players from fixed openings, for BayesElo")
+    tournament.add_argument("--players", nargs="+", required=True, help="sf<elo> or name=<model ref>; first player leads --schedule first")
+    tournament.add_argument("--schedule", choices=["first", "all"], default="first", help="first player vs each other, or round robin")
+    tournament.add_argument("--openings-file", default="benchmark/openings.tsv")
+    tournament.add_argument("--openings", type=int, default=100, help="each opening is played once with each color")
+    tournament.add_argument("--opening-offset", type=int, default=0)
+    tournament.add_argument("--stockfish", default="/opt/homebrew/bin/fairy-stockfish")
+    tournament.add_argument("--stockfish-depth", type=int, default=1)
+    tournament.add_argument("--stockfish-timeout", type=float, default=10.0)
+    tournament.add_argument("--adjudicate-time", type=float, default=0.01)
+    tournament.add_argument("--adjudicate-cp", type=int, default=1300)
+    tournament.add_argument("--max-plies", type=int, default=400)
+    tournament.add_argument("--temperature", type=float, default=0.0)
+    tournament.add_argument("--legal-mask", action=argparse.BooleanOptionalAction, default=True,
+                            help="Mask illegal tokens; challenge scoring requires --no-legal-mask")
+    tournament.add_argument("--device", default="", choices=["", "cuda", "cpu", "mps"])
+    tournament.add_argument("--batch-size", type=int, default=64)
+    tournament.add_argument("--seed", type=int, default=0)
+    tournament.add_argument("--output", required=True)
+    tournament.set_defaults(func=command_tournament)
+
+    elo = sub.add_parser("elo", help="BayesElo ratings over tournament game records, pinned to an anchor")
+    elo.add_argument("--games-dir", required=True, help="directory of tournament JSONL files")
+    elo.add_argument("--anchor", default="sf1500")
+    elo.add_argument("--anchor-elo", type=int, default=1500)
+    elo.add_argument("--bayeselo", default="bayeselo")
+    elo.add_argument("--output", required=True)
+    elo.set_defaults(func=command_elo)
 
     summarize = sub.add_parser("summarize", help="Summarize benchmark JSONL artifacts")
     summarize.add_argument("paths", nargs="+")

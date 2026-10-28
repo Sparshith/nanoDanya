@@ -3,11 +3,21 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
-from chess_token_utils import normalized_legal_sans, token_is_playable
+from chess_token_utils import normalized_legal_sans, strip_san, token_is_playable
 
 if TYPE_CHECKING:
     import chess
     import torch
+
+
+def parse_san_prediction(board: chess.Board, token: str | None) -> chess.Move | None:
+    if token is None:
+        return None
+    try:
+        move = board.parse_san(token)
+    except ValueError:
+        return None
+    return move if move in board.legal_moves and strip_san(board.san(move)) == strip_san(token) else None
 
 
 def token_for_id(itos: Mapping[int | str, str] | Sequence[str], idx: int) -> str:
