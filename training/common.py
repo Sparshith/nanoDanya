@@ -185,12 +185,16 @@ def train_loop(model, optimizer, config, meta, device, ckpt_path, best_ckpt_path
             break
 
 
-def forward_hidden(model, xb):
+def forward_hidden(model, xb, input_additions=None, kv_cache=None):
     T = xb.size(1)
-    cos_sin = model.cos[:, :T], model.sin[:, :T]
-    x = norm(model.transformer.wte(xb))
+    start = 0 if kv_cache is None else kv_cache.get_pos()
+    cos_sin = model.cos[:, start:start + T], model.sin[:, start:start + T]
+    x = model.transformer.wte(xb)
+    if input_additions is not None:
+        x = x + input_additions
+    x = norm(x)
     for block in model.transformer.h:
-        x = block(x, cos_sin, None)
+        x = block(x, cos_sin, kv_cache)
     return norm(x)
 
 

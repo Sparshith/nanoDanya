@@ -7,6 +7,7 @@ app = modal.App("nanodanya-train")
 # A100 now requires a payment method on file (credits alone no longer unlock it).
 # Set MODAL_GPU (e.g. A10G, L4, L40S) to run on a credit-eligible GPU.
 GPU = os.environ.get("MODAL_GPU", "A100")
+torch_version, cuda_wheels = ("2.7.1+cu128", "cu128") if GPU == "B200" else ("2.5.1+cu124", "cu124")
 
 ignore = modal.FilePatternMatcher.from_file(".modalignore")
 
@@ -15,19 +16,26 @@ image = (
     .apt_install("ca-certificates", "curl")
     .run_commands(
         "curl -L --fail -o /usr/local/bin/fairy-stockfish "
-        "https://github.com/fairy-stockfish/Fairy-Stockfish/releases/latest/download/fairy-stockfish-largeboard_x86-64",
+        "https://github.com/fairy-stockfish/Fairy-Stockfish/releases/download/fairy_sf_14/fairy-stockfish-largeboard_x86-64",
+        "echo '41b8b4d539adfd9924929ee4a948d1a37dd1e9beaa535a811cb5e7fee9e4cb99  /usr/local/bin/fairy-stockfish' | sha256sum -c",
         "chmod +x /usr/local/bin/fairy-stockfish",
     )
     .pip_install(
         "numpy",
-        "torch==2.5.1+cu124",
+        f"torch=={torch_version}",
         "python-chess",
-        extra_index_url="https://download.pytorch.org/whl/cu124",
+        extra_index_url=f"https://download.pytorch.org/whl/{cuda_wheels}",
     )
-    .add_local_dir(".", "/root/project", ignore=ignore)
+    .pip_install("requests==2.32.5")
+    .pip_install("onnx==1.23.0", "onnxruntime==1.23.2")
+    .env({"PYTHONPATH": "/root/project:/root/project/nanochat", "PYTHONUNBUFFERED": "1"})
+    .add_local_dir(os.getenv("MODAL_PROJECT_DIR", "."), "/root/project", ignore=ignore)
 )
 
 volume = modal.Volume.from_name("nanodanya-data")
+budgeted = os.getenv("MODAL_BUDGETED", "0") == "1"
+cpu_count = float(os.environ.get("MODAL_CPU", "1"))
+memory_mib = int(os.environ.get("MODAL_MEMORY", "8192"))
 
 
 def parse_env_overrides(raw: str) -> dict[str, str]:
@@ -50,17 +58,22 @@ def parse_env_overrides(raw: str) -> dict[str, str]:
 @app.function(
     image=image,
     gpu=None if GPU.lower() == "none" else GPU,
-    cpu=float(os.environ.get("MODAL_CPU", "1")),
-    memory=int(os.environ.get("MODAL_MEMORY", "8192")),
-    timeout=60 * 60 * 12,
+    cpu=(cpu_count, cpu_count) if budgeted else cpu_count,
+    memory=(memory_mib, memory_mib) if budgeted else memory_mib,
+    timeout=int(os.environ.get("MODAL_TIMEOUT", str(60 * 60 * 12))),
+    **({"max_containers": 1, "retries": 0, "scaledown_window": 2,
+        "startup_timeout": 120} if budgeted else {}),
     volumes={"/data": volume},
 )
-def train(datasets: str, script: str, env_overrides: str = ""):
+def train(datasets: str, script: str, env_overrides: str = "", resources: dict | None = None):
     import os
     import subprocess
     import shutil
+    import time
     from pathlib import Path
 
+    started = time.monotonic()
+    volume.reload()
     project_root = Path("/root/project")
     volume_data = Path("/data")
 
@@ -84,18 +97,43 @@ def train(datasets: str, script: str, env_overrides: str = ""):
     if env_overrides:
         print(f"Using env overrides: {env_overrides}")
     try:
-        subprocess.run(
-            ["python", script],
-            check=True,
-            cwd=project_root,
-            env=env,
-        )
+        command = ["python", script]
+        if request_file := env.get("MODAL_CHECKPOINT_COMMIT_FILE"):
+            request = Path(request_file)
+            request.unlink(missing_ok=True)
+            with subprocess.Popen(command, cwd=project_root, env=env) as process:
+                try:
+                    while process.poll() is None:
+                        if request.exists():
+                            volume.commit()
+                            request.unlink()
+                        time.sleep(0.5)
+                    if process.returncode:
+                        raise subprocess.CalledProcessError(process.returncode, command)
+                except BaseException:
+                    process.terminate()
+                    raise
+        else:
+            subprocess.run(command, check=True, cwd=project_root, env=env)
     finally:
         volume.commit()
+        print("RESOURCE_RECEIPT=" + json.dumps({"seconds": time.monotonic() - started,
+              **(resources or {})}), flush=True)
     print("Script complete, volume changes committed")
 
 
 @app.local_entrypoint()
 def main(datasets: str = "processed", script: str = "training/train.py", gpu: str = "", env_overrides: str = ""):
     print(f"GPU: {GPU} (set via MODAL_GPU env var)")
-    train.remote(datasets, script, env_overrides)
+    resources = {"gpu": GPU, "cpu_limit": cpu_count if budgeted else None,
+                 "memory_mib": memory_mib}
+    if budgeted:
+        call = train.spawn(datasets, script, env_overrides, resources)
+        try:
+            # A wall-clock limit also covers automatic retries after preemption.
+            call.get(timeout=int(os.environ["MODAL_TIMEOUT"]) + 120)
+        except BaseException:
+            call.cancel(terminate_containers=True)
+            raise
+    else:
+        train.remote(datasets, script, env_overrides, resources)

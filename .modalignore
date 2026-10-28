@@ -6,6 +6,8 @@ puzzle_metadata_full.txt
 experimentation/
 *.ipynb
 __pycache__/
+**/__pycache__/**
+scratch/modal-transfer-*/
 .git/
 .venv/
 .worktrees/
