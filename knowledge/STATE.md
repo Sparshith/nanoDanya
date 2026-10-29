@@ -1,6 +1,6 @@
 # nanoDanya State
 
-Last updated: 2026-10-21
+Last updated: 2026-10-28
 
 The project asks how much chess (legal continuation, tactics, termination) a pure
 next-token model internalizes from data and objectives. Runtime scaffolds (legality
@@ -13,6 +13,14 @@ https://www.sparshith.com/posts/nanodanya.html (numbers verified against
 `benchmark/results/` on 2026-07-04).
 
 ## Current story
+
+- **Full-Leela L16 run paused by user (2026-10-28).** Latest durable checkpoint
+  310k/488,178 updates, 63.5% Leela coverage; optimizer and sampler state retained.
+  Fresh 2,600-game evaluation: new 1796 versus prior mixed-200k 1811 internal
+  masked Elo; direct H2H 47.4% (1,000 games, 95% 45.0–49.8%). No improvement at
+  this checkpoint. Approximately $48 estimated compute of the $100 cap. Training
+  and evaluation apps stopped; leave paused until the user requests resume
+  ([results](experiments/2026-10-28-full-leela-coverage.md)).
 
 - **10 MB mixed-data retraining regressed (completed 2026-10-19).** Fresh
   9x320 student, 50/50 human–Leela loss and corrected recipe completed 200k

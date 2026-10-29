@@ -1,8 +1,51 @@
 # Full Leela coverage, mixed L16
 
-Status: dataset audit and GPU preflight passed on October 28; training pipeline
-launched. User authorized training on all existing Leela training data with a new
-$100 total compute cap. Results pending.
+Status: paused at the user's request on October 28 for checkpoint strength testing.
+Training app stopped at 18:39 IST. The latest durable checkpoint is step 310,000;
+the last logged update was 319,000. About 9k unsaved updates would be replayed on
+resume. User authorized training on all existing Leela training data with a new
+$100 total compute cap, then explicitly requested this pause. Leave training paused.
+
+Checkpoint audit: 4,344,771,004 / 6,841,912,852 Leela targets (63.50%), cursor
+9,920,000 / 15,621,668 windows. Model, optimizer and RNG state preserved. Latest
+validation move CE is 1.43645 (human 1.33511, Leela 1.53780). Frozen evaluation
+copy and 2,600-game fresh comparison against the successful mixed 200k model are
+under `output/leela-full-20261028/pause-eval/`. Evaluation and independent legal
+replay audit completed; no strength improvement at this checkpoint.
+
+## Paused-checkpoint results
+
+| Metric | Previous mixed 200k | Full-coverage recipe at 310k |
+| --- | ---: | ---: |
+| Internal BayesElo in this fresh pool | 1811 ±11 | 1796 ±11 |
+| Score vs SF1500, 400 games each | 85.625% | 83.625% |
+| Score vs SF2000, 400 games each | 78.000% | 77.375% |
+
+Direct H2H: new checkpoint 277W/394D/329L, 47.4% across 1,000 games.
+Color-stratified bootstrap 95% score interval [45.0%, 49.8%]. Logistic
+score-equivalent Elo is -18.1, interval [-34.9, -1.4]. Joint four-player BayesElo
+fit gives a -15-point difference. The individual ±11 BayesElo intervals condition
+on opponent rating estimates and are not a confidence interval for the difference.
+SF1500 is anchored at 1500 by convention; ratings are internal masked ratings,
+not calibrated human or Lichess Elo. Do not compare absolute ratings across pools.
+
+Both models had 6/4,096 nonlegal raw top choices on the fixed-position probe;
+real illegal moves excluding under-disambiguation were 4 new versus 3 old. Early
+EOS top choices were 4 versus 8. These counts do not establish unmasked game strength.
+The harness scored capped games and one old-model SF2000 opponent-vocabulary
+ending as draws; H2H had five capped games and no vocabulary endings.
+
+All 2,600 saved games independently replayed legally; model identities, settings,
+outcomes, group totals and rating-game counts checked. Final evidence:
+`output/leela-full-20261028/pause-eval/audit.json`, `comparison.pgn`,
+`bayeselo-output.txt`, and `records/benchmark/`.
+
+Training and both evaluation-launch apps are stopped. Approximately $47.99 in
+resource-time estimates through the pause/test, before unmeasured startup and
+minor controller overhead, within the original $100 cap. The GPU evaluation cost
+approximately $0.49. The initial CPU-only controller launch failed before GPU work
+and was stopped; its overhead is covered by the reserved margin. No promotion or
+resume. This result concerns the 63.5%-covered checkpoint, not a completed pass.
 
 The earlier mixed run sampled windows with replacement: 2.80B supervised Leela
 tokens at 200k updates and 4.20B at 300k, against a 6.894B-token training corpus.
