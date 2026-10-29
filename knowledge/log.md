@@ -1373,3 +1373,61 @@ Graded the Sep 21 temperature sweep (champion `plain/games-15m/l16_best.pt` vs S
 Champion blunders per game (±95%) / score: T0.0 1.82±0.21 / 75%, T0.2 1.88±0.24 / 77%, T0.4 2.27±0.26 / 68%, T0.6 2.42±0.27 / 63%, T0.8 3.08±0.28 / 50%, T1.0 3.71±0.30 / 35%. SF1500 blunders rise from 2.06 to 3.26 over the same range (games get longer and messier). Head-to-head at 0.2: RL 3.11±0.16 vs champion 3.17±0.16, RL score 52.4%.
 
 Conclusion: with model and opponent fixed, 0.8 → 0.2 alone removes about 1.2 blunders per game. RL does not change the blunder rate. This confirms that temperature, not the RL model, drove the Sep 22 Lichess jump. Added as the fourth section of `plot/lichess-blunders-by-period/`.
+
+## 2026-10-29 consolidated trainer CUDA verification
+
+Completed seven H100 timing arms under a user-authorized $10 cap, using the real
+L16 and human/Leela corpora. Each had 25 warmup and 200 measured updates, global
+batch 64. Old mixed loop: 116.09 ms/update; consolidated mixed: 116.96 ms at
+microbatch 64, 123.46 ms at 32, 135.77 ms at 16. Peak allocated memory was
+28.70/16.74/10.33 GiB. Consolidated all-data-once: 116.48 ms at microbatch 64,
+projecting 9.03 update-hours for 278,963 updates, excluding validation and saving.
+
+Identical mixed batches and timed target counts verified. CUDA one-update loss,
+gradient and weight-delta checks passed predeclared BF16 tolerances; not bitwise
+GPU equivalence. Keep microbatch 64 on H100. Function receipt estimates $0.483;
+conservative elapsed-time estimate $0.509, with a separate $2 overhead allowance
+within the cap. App ap-7g6USCEUFItC1MOnOgl81v stopped, zero tasks. No promotion,
+full training, multi-GPU launch or resume of the paused Leela experiment.
+[Protocol, results and limits](experiments/2026-10-29-consolidated-cuda-performance.md).
+
+## 2026-10-29 H100 profiling and training optimization
+
+Profiled and tested compiler modes, packed attention projections and cuDNN under
+a separate user-authorized $20 cap. Data handling was under 1% of update time.
+The adopted path compiles model and weighted loss together with max-autotune in
+the L16 presets, retaining batch 64 and the objective. Final real-coverage timing:
+118.87 to 110.97 ms/update, 7.1% more throughput. Both corpora once project to
+8.60 update-hours, about 37 minutes saved. The Modal launcher persists compiler
+cache. Packed projections added only about 1%; cuDNN failed the predeclared
+weight-update tolerance, so neither was adopted.
+
+Fixed early BF16 rounding in validation cross-entropy by explicitly passing FP32
+logits to the loss. 38 local tests and three final CUDA numerical comparisons
+passed. Resume restores weights, optimizer, next batch and RNG states exactly.
+Strict whole-trajectory equality failed in both the original loop and two
+uninterrupted optimized repeats; comparable overall drift supports GPU arithmetic
+variation, not lost checkpoint state. These failed strict checks remain recorded.
+
+Conservative compute estimate $4.35 ($4.18 from function receipts), with the $3
+overhead allowance still keeping the total below $20. All seven apps stopped,
+zero tasks. No full training, Elo evaluation, promotion, commit, push or resume of
+the paused Leela run. [Results and receipts](experiments/2026-10-29-h100-training-optimization.md).
+
+## 2026-10-29 closed experiment code cleanup
+
+At the user's request, removed closed scratch experiments and their exclusive
+training, preparation, readout, launcher and test dependencies. This includes
+check/capture/stalemate traces, board/piece experiments, iterative RL, small-model
+sweeps, Searchless comparisons and completed CUDA tuning scripts. Findings,
+result artifacts, datasets and checkpoints were retained.
+
+The user explicitly kept the Leela pilot and whole-game work open. Their 30
+scratch scripts and shared dependencies remain, including the paused full-Leela
+run. Four operational utilities also remain. Board-conditioned inference and
+checkpoint compatibility are retained; the closed auxiliary trainers are gone.
+The deletion manifest and source hashes are in `output/cleanup-20261029/`.
+
+Verification: 115 repository/open-experiment tests passed. All 44 preserved open-
+experiment source hashes are unchanged; no remaining Python references point to
+the 202 removed files. No cloud runs, checkpoint changes, commits or pushes.

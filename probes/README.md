@@ -68,21 +68,3 @@ A decoded board measures linearly recoverable information. Readout errors do
 not establish that the model believed a different board, and a correct board
 does not establish that it can anticipate mate. Sparse endgames can be harder
 than the aggregate validation score suggests.
-
-## Identity-head game viewer
-
-Decode every position, including both players' moves and the final board,
-with the frozen champion's fitted piece head and the warmed joint model:
-
-```bash
-MODAL_PROFILE=second modal run --detach scratch/modal_involved_pilot.py --action head-game
-.venv/bin/python probes/build_head_viewer.py
-afbin preview output/artifactbin/piece-head-game.jsx --port 7448
-```
-
-The JSON stays in `data/probes/involved-pieces-20260921/head-game.json`.
-This head assigns a location to each of the 32 starting identities, with no
-captured-state class. The default display explicitly uses the game record to
-hide captured pieces; toggle raw outputs to see all 32 predictions. Overlapping
-predictions remain visible. Piece-location scores count known living identities,
-never empty squares. The viewer is local and does not publish the report.

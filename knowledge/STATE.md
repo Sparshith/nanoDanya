@@ -1,6 +1,6 @@
 # nanoDanya State
 
-Last updated: 2026-10-28
+Last updated: 2026-10-29
 
 The project asks how much chess (legal continuation, tactics, termination) a pure
 next-token model internalizes from data and objectives. Runtime scaffolds (legality
@@ -13,6 +13,22 @@ https://www.sparshith.com/posts/nanodanya.html (numbers verified against
 `benchmark/results/` on 2026-07-04).
 
 ## Current story
+
+- **Experiment code cleanup (2026-10-29).** Closed scratch experiments and their
+  exclusive dependencies were removed. The user explicitly kept the Leela pilot
+  and whole-game work open; full-Leela remains paused. Shared inference,
+  pretraining, RL, distillation and generic probing tools remain. Saved findings,
+  results and checkpoints were preserved.
+
+- **Consolidated trainer accelerated on H100 (2026-10-29).** Compiling model and
+  loss together with autotuning reduced updates from 118.9 to 111.0 ms, about 7%
+  more throughput at the same batch 64 and objective. Both corpora once project
+  to 8.60 update-hours, about 37 minutes saved. Compiler cache persists; loss
+  precision was corrected to FP32. Numerical checks and exact resume-state
+  checks passed; strict CUDA trajectory equality fails in both the old loop and
+  uninterrupted repeats. 38 local tests passed. Estimated compute $4.35 of a
+  separate $20 cap; all seven apps stopped. No full training, Elo evaluation or
+  Leela resume ([results](experiments/2026-10-29-h100-training-optimization.md)).
 
 - **Full-Leela L16 run paused by user (2026-10-28).** Latest durable checkpoint
   310k/488,178 updates, 63.5% Leela coverage; optimizer and sampler state retained.

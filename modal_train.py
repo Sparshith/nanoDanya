@@ -77,7 +77,7 @@ def train(datasets: str, script: str, env_overrides: str = "", resources: dict |
     project_root = Path("/root/project")
     volume_data = Path("/data")
 
-    for dataset in datasets.split(","):
+    for dataset in filter(None, datasets.split(",")):
         local_data = project_root / "data" / dataset
         local_data.parent.mkdir(parents=True, exist_ok=True)
         if local_data.exists():
@@ -91,7 +91,7 @@ def train(datasets: str, script: str, env_overrides: str = "", resources: dict |
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
-    env["PYTHONPATH"] = str(project_root / "nanochat")
+    env["PYTHONPATH"] = str(project_root) + ":" + str(project_root / "nanochat")
     env["NANODANYA_MODAL_TRAIN"] = "1"
     env.update(parse_env_overrides(env_overrides))
     if env_overrides:
@@ -123,7 +123,34 @@ def train(datasets: str, script: str, env_overrides: str = "", resources: dict |
 
 
 @app.local_entrypoint()
-def main(datasets: str = "processed", script: str = "training/train.py", gpu: str = "", env_overrides: str = ""):
+def main(datasets: str = "processed", script: str = "training/train.py", gpu: str = "", env_overrides: str = "",
+         recipe: str = "", checkpoint_dir: str = "", sources: str = ""):
+    if recipe:
+        from pathlib import Path
+        from training.recipe import resolve_recipe
+
+        settings = resolve_recipe(json.loads(Path(recipe).read_text()))
+        if not checkpoint_dir:
+            raise ValueError('--checkpoint-dir is required with --recipe')
+        if sources and (settings['sampling']['mode'] != 'coverage' or
+                        not set(sources.split(',')) <= settings['datasets'].keys()):
+            raise ValueError('--sources must name datasets in a coverage recipe')
+        if not all(Path(folder).is_relative_to('/data') for folder in settings['datasets'].values()):
+            raise ValueError('Modal recipes must use absolute dataset paths on /data')
+        if not Path(checkpoint_dir).is_relative_to('/data'):
+            raise ValueError('--checkpoint-dir must be on /data')
+        recipe = str(Path(recipe).resolve().relative_to(Path(__file__).resolve().parent))
+        env = parse_env_overrides(env_overrides)
+        env.update(TRAIN_RECIPE=recipe, CKPT_DIR=checkpoint_dir,
+                   MODAL_CHECKPOINT_COMMIT_FILE=checkpoint_dir + '/commit-request')
+        env.setdefault('TORCHINDUCTOR_CACHE_DIR',
+                       f'/data/compile-cache/torch-{torch_version.replace("+", "-")}-{GPU}')
+        env.setdefault('MODAL_TIMEOUT', os.getenv('MODAL_TIMEOUT', str(60 * 60 * 12)))
+        if sources:
+            env['TRAIN_SOURCES'] = sources
+        env_overrides = json.dumps(env)
+        datasets = ''
+        script = 'training/train.py'
     print(f"GPU: {GPU} (set via MODAL_GPU env var)")
     resources = {"gpu": GPU, "cpu_limit": cpu_count if budgeted else None,
                  "memory_mib": memory_mib}
