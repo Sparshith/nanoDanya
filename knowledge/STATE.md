@@ -14,6 +14,15 @@ https://www.sparshith.com/posts/nanodanya.html (numbers verified against
 
 ## Current story
 
+- **Single-source DDP measured on H100 (2026-10-30).** At global batch 64,
+  2/4/8 H100s deliver 1.68x/2.70x/4.06x steady-state speedup over one H100.
+  Eight GPUs use 1.97x GPU-hours for the same updates. Full-loss compilation
+  avoids the per-bucket capture/NCCL waits seen in an earlier probe. Real
+  validation/checkpoint runs work on eight GPUs, but 20-update jobs do not
+  benefit overall. 19 Linux tests passed; conservative accounting is below
+  $32 of a $50 cap; all containers stopped
+  ([results](experiments/2026-10-30-h100-scaling.md)).
+
 - **Experiment code cleanup (2026-10-29).** Closed scratch experiments and their
   exclusive dependencies were removed. The user explicitly kept the Leela pilot
   and whole-game work open; full-Leela remains paused. Shared inference,

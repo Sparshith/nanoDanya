@@ -1431,3 +1431,17 @@ The deletion manifest and source hashes are in `output/cleanup-20261029/`.
 Verification: 115 repository/open-experiment tests passed. All 44 preserved open-
 experiment source hashes are unchanged; no remaining Python references point to
 the 202 removed files. No cloud runs, checkpoint changes, commits or pushes.
+
+
+## 2026-10-30: Single-source H100 scaling
+
+Implemented recipe-trainer DDP and a budget-bounded Modal benchmark. At fixed
+global batch 64, median updates are 108.56/64.70/40.26/26.77 ms on 1/2/4/8 H100s.
+Eight GPUs provide 4.06x throughput at 1.97x GPU-hours. Initial compiler graph
+partitioning caused prolonged capture/NCCL waits on eight GPUs; the final path
+compiles one loss graph. Nineteen Linux tests pass, including raw gradient
+equality and exact resume. Real 20-update runs with validation and Volume commits
+took about 110 seconds on one GPU and 117 seconds on eight, including container
+overhead. Conservative total accounting is below $32/$50; all containers stopped.
+Pricing is cached and both instruction files now require a task budget.
+[Results](experiments/2026-10-30-h100-scaling.md). No commit or push.
