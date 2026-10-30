@@ -1,6 +1,6 @@
 # nanoDanya State
 
-Last updated: 2026-10-29
+Last updated: 2026-10-30
 
 The project asks how much chess (legal continuation, tactics, termination) a pure
 next-token model internalizes from data and objectives. Runtime scaffolds (legality
@@ -13,6 +13,17 @@ https://www.sparshith.com/posts/nanodanya.html (numbers verified against
 `benchmark/results/` on 2026-07-04).
 
 ## Current story
+
+- **Human-only corrected-recipe L16 matches mixed-data strength (2026-10-30).**
+  Completed 200k updates on eight H100s and 3,600 fresh masked games. Internal
+  BayesElo: old human 1818, corrected human-only 1949, mixed 1954. Human-only
+  scores 65.375% vs old human (400 games, paired-opening 95% 61.375–69.375%)
+  and 48.625% vs mixed (44.5–52.75%). A clear recipe/training benefit; no
+  established additional Leela advantage in this one-seed comparison. Final
+  human validation CE 1.305626. Current trainer implementation and supervised
+  token counts differ slightly from the historical mixed run. Conservative
+  accounting $77.48/$80; both apps stopped, no promotion
+  ([results](experiments/2026-10-30-human-fixed-recipe.md)).
 
 - **Single-source DDP measured on H100 (2026-10-30).** At global batch 64,
   2/4/8 H100s deliver 1.68x/2.70x/4.06x steady-state speedup over one H100.
