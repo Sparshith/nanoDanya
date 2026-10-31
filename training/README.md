@@ -49,8 +49,8 @@ proportions; `final.pt` is the fixed training endpoint for comparisons.
 
 `batch_size` is the number of windows per optimizer update. `microbatch_size`
 controls how many are processed at a time; accumulated gradients use the full
-batch's token counts. Execution is currently single-GPU, with optional compilation
-and BF16 on CUDA. CPU supports small local checks. `model_type` can be `gpt` or
+batch's token counts. Single-source runs support multiple GPUs through DDP, with
+optional compilation and BF16 on CUDA. CPU supports small local checks. `model_type` can be `gpt` or
 `student`; quantization, distillation and RL retain their separate trainers.
 
 CUDA training compiles the model and token-weighted loss together. The L16
@@ -107,3 +107,49 @@ with tiny GPT/student models on CPU. They check exact target coverage and contex
 weighted gradients, FP32 loss precision, real parameter updates, resume integrity,
 incompatible-input rejection, and both recipe CLIs. CUDA compilation/performance
 requires separate GPU verification. Use `pytest tests` for the full repository suite.
+
+Single-source runs support DDP via `torchrun --standalone
+--nproc_per_node=8 -m training.train ...`, or `MODAL_GPU=H100:8` through the Modal
+launcher. `batch_size` remains global and must divide evenly across workers;
+`microbatch_size` is a per-worker maximum. Each worker deterministically builds
+the same global batch and trains on its own slice. This preserves coverage and
+token normalization, including an entirely padded final slice. Data indexing and
+CPU batch construction are currently replicated. Validation and file writes run
+on rank zero. Resume requires the same world size.
+
+Run the bounded, single-source H100 comparison with an explicit budget:
+
+```sh
+MODAL_PROFILE=second MODAL_GPU=H100 modal run --detach modal_scaling.py --source human --budget 50
+```
+
+The launcher runs CPU correctness tests first, then sequential 1/2/4/8-H100 jobs.
+Each job measures three blocks of 200 updates after 20 warmup updates, with global
+batch 64. Startup/compilation is reported separately; timed updates include data
+sampling, transfers, backward, gradient synchronization, clipping, and AdamW.
+The timing loop uses a fixed peak learning rate on all GPU counts; it measures
+throughput, not learning quality. Validation/checkpoint overhead is excluded from
+steady-state measurements. The operational mode uses the actual training schedule.
+Results and GPU telemetry are saved on the volume under `benchmarks/scaling/`.
+The local `benchmark/results/scaling-*` folder records the budget and call ID;
+retrieve completed JSON results with `modal volume get`. A remote CPU controller
+keeps the sequential sweep running if the local connection drops. The CPU
+controller is non-preemptible so GPU-call wall-clock limits survive GPU preemptions.
+Runtime limits, CPU/memory limits, no error retries, and the cached pricing snapshot
+bound the sweep's
+estimated cost. Actual billing may differ from the estimate.
+
+Use `--operational --counts 1,8` for a separate 20-update run including startup,
+initial/final validation, checkpoint writes to the volume, and actual Volume
+commits. This is a short-run overhead measurement, not steady-state throughput.
+Its runtime cap is shorter.
+
+Linux tests additionally launch two Gloo workers to check raw gradient equality
+with uneven token counts and an empty worker slice, exact target coverage, and
+resume equivalence. Those integration tests are skipped on non-Linux hosts.
+
+CUDA DDP compiles the full loss graph with `torch._dynamo.config.optimize_ddp=False`.
+This avoids interleaving per-bucket CUDA graph capture with pending NCCL work,
+which prevented the initial eight-GPU probe from completing warmup within its
+budgeted window. It trades communication overlap for simpler capture behavior;
+scaling measurements must use this same setting across distributed runs.

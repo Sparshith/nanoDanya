@@ -1,0 +1,29 @@
+{
+  "checked_on": "2026-10-30",
+  "source": "https://modal.com/pricing",
+  "currency": "USD",
+  "gpu_per_second": {
+    "B300": 0.001972,
+    "B200": 0.001736,
+    "H200": 0.001261,
+    "H100": 0.001097,
+    "RTX-PRO-6000": 0.000842,
+    "A100-80GB": 0.000694,
+    "A100-40GB": 0.000583,
+    "L40S": 0.000542,
+    "A10": 0.000306,
+    "L4": 0.000222,
+    "T4": 0.000164
+  },
+  "cpu_physical_core_per_second": 0.0000131,
+  "memory_gib_per_second": 0.00000222,
+  "volume_gib_per_month": 0.09,
+  "network_egress_gib": 0.04,
+  "notes": [
+    "Standard preemptible Functions pricing, before credits or discounts.",
+    "CPU and memory billed at the greater of reserved and actual usage.",
+    "Startup and container idle time are billed. Region selection can add a premium.",
+    "Non-preemptible execution costs 3x base prices.",
+    "Snapshot only. Recheck source before spending against a strict budget."
+  ]
+}

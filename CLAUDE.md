@@ -70,3 +70,9 @@ uv run modal run modal_train.py --datasets datasets/puzzles/5m --script training
 `--datasets` is a comma-separated list of volume paths (symlinked into `data/`; pass the same path as `DATASET_DIR`). `--script` is the training script path relative to project root. GPU type is set via the `MODAL_GPU` env var (default A100, use A10G for cheaper runs); the `--gpu` flag is a no-op because the GPU is fixed at import time.
 
 Do not create separate modal_train files for different training runs. Always use the same `modal_train.py` with different arguments.
+
+## Paid cloud runs
+
+- Ask the user for a spending budget before launching paid cloud work, unless a budget has already been provided for the current task. Do not ask again within that task.
+- Treat the budget as a total cap including startup, compilation, retries, CPU, memory, and GPU time. Use bounded runs and track spending against it.
+- Modal pricing is cached in `ops/modal-pricing.json`. Check its date and verify rates before paid runs with a strict budget.

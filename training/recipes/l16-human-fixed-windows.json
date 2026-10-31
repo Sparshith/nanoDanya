@@ -1,0 +1,27 @@
+{
+  "datasets": {
+    "human": "/data/datasets/games/15m"
+  },
+  "model_config": {
+    "sequence_len": 512,
+    "vocab_size": 14750,
+    "n_layer": 16,
+    "n_head": 8,
+    "n_kv_head": 8,
+    "n_embd": 1024
+  },
+  "seed": 20261013,
+  "batch_size": 64,
+  "microbatch_size": 64,
+  "compile_mode": "max-autotune",
+  "sampling": {
+    "mode": "mixture",
+    "windows_per_source": {"human": 64},
+    "steps": 200000
+  },
+  "loss_weights": {"human": 1.0},
+  "learning_rate": 0.0003,
+  "min_learning_rate": 0.00003,
+  "warmup_steps": 2000,
+  "learning_rate_schedule": "cosine"
+}

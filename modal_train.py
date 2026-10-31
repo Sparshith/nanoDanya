@@ -11,7 +11,7 @@ torch_version, cuda_wheels = ("2.7.1+cu128", "cu128") if GPU == "B200" else ("2.
 
 ignore = modal.FilePatternMatcher.from_file(".modalignore")
 
-image = (
+base_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ca-certificates", "curl")
     .run_commands(
@@ -29,8 +29,8 @@ image = (
     .pip_install("requests==2.32.5")
     .pip_install("onnx==1.23.0", "onnxruntime==1.23.2")
     .env({"PYTHONPATH": "/root/project:/root/project/nanochat", "PYTHONUNBUFFERED": "1"})
-    .add_local_dir(os.getenv("MODAL_PROJECT_DIR", "."), "/root/project", ignore=ignore)
 )
+image = base_image.add_local_dir(os.getenv("MODAL_PROJECT_DIR", "."), "/root/project", ignore=ignore)
 
 volume = modal.Volume.from_name("nanodanya-data")
 budgeted = os.getenv("MODAL_BUDGETED", "0") == "1"
@@ -97,7 +97,9 @@ def train(datasets: str, script: str, env_overrides: str = "", resources: dict |
     if env_overrides:
         print(f"Using env overrides: {env_overrides}")
     try:
-        command = ["python", script]
+        count = int(GPU.rsplit(":", 1)[1]) if ":" in GPU else 1
+        command = (["python", "-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={count}", script]
+                   if count > 1 else ["python", script])
         if request_file := env.get("MODAL_CHECKPOINT_COMMIT_FILE"):
             request = Path(request_file)
             request.unlink(missing_ok=True)

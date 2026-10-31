@@ -11,12 +11,15 @@ import torch
 import torch.nn.functional as F
 
 from nanochat.gpt import GPT, GPTConfig
+from training import distributed
 from training.context_batches import sample_context_batch
 from training.coverage_batches import coverage_batch, coverage_index
 from training.recipe import BatchStream, load_data, loss_scales, resolve_recipe, target_counts
 
 
 def write_json(path, value):
+    if distributed.rank() != 0:
+        return
     path = Path(path)
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value, indent=2) + '\n')
@@ -46,6 +49,8 @@ def training_loss(model, x, y, row_scales):
 
 
 def make_loss(model, recipe):
+    if distributed.world_size() > 1:
+        return distributed.distributed_loss(model, recipe)
     loss = partial(training_loss, model)
     if recipe['compile'] and recipe['device'] == 'cuda':
         return torch.compile(loss, fullgraph=True, mode=recipe['compile_mode'])
@@ -62,15 +67,26 @@ def backward_batch(model, batch, recipe, loss_fn=None):
     counts = target_counts(y, source_ids, names)
     scales = loss_scales(counts, recipe['loss_weights'])
     row_scales = torch.tensor([scales[name] for name in names])[source_ids.clamp_min(0)]
-    total_loss = 0.
+    size = distributed.world_size()
+    if len(x) % size:
+        raise ValueError('Global batch_size must be divisible by world size')
+    local = len(x) // size
+    offset = distributed.rank() * local
+    x, y = x[offset:offset + local], y[offset:offset + local]
+    row_scales = row_scales[offset:offset + local] * size
+    total_loss = torch.zeros((), device=recipe['device'])
     for start in range(0, len(x), recipe['microbatch_size']):
         stop = start + recipe['microbatch_size']
         xb, yb = x[start:stop].to(recipe['device']), y[start:stop].to(recipe['device'])
         # Normalize against the entire update, including all accumulated microbatches.
-        loss = loss_fn(xb, yb, row_scales[start:stop].to(recipe['device']))
-        loss.backward()
-        total_loss += float(loss.detach())
-    return total_loss, counts
+        with distributed.accumulation_context(loss_fn, stop >= len(x)):
+            loss = loss_fn(xb, yb, row_scales[start:stop].to(recipe['device']))
+            loss.backward()
+        total_loss += loss.detach()
+    if size > 1:
+        torch.distributed.all_reduce(total_loss)
+        total_loss /= size
+    return float(total_loss), counts
 
 
 def evaluate(model, data, meta, recipe, fingerprints):
@@ -117,15 +133,32 @@ def evaluate(model, data, meta, recipe, fingerprints):
 
 
 def train(settings, output_dir, stop_after_step=None, deadline=None, commit=lambda: None):
+    distributed.initialize(settings.get('device', 'cuda'))
+    try:
+        return _train(settings, output_dir, stop_after_step, deadline, commit)
+    finally:
+        if torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
+
+
+def _train(settings, output_dir, stop_after_step, deadline, commit):
     recipe = resolve_recipe(settings)
-    if int(os.environ.get('WORLD_SIZE', '1')) != 1:
-        raise ValueError('This trainer currently supports one process; do not launch with torchrun')
+    if recipe['batch_size'] % distributed.world_size():
+        raise ValueError('Global batch_size must be divisible by world size')
+    if distributed.world_size() > 1 and len(recipe['datasets']) != 1:
+        raise ValueError('Distributed training currently requires one source')
+    original_commit = commit
+    def commit():
+        if distributed.rank() == 0:
+            original_commit()
+        distributed.barrier()
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     protocol_path = output / 'recipe.json'
     if protocol_path.exists() and json.loads(protocol_path.read_text()) != recipe:
         raise ValueError('Recipe differs from this run; use a new output directory')
     write_json(protocol_path, recipe)
+    distributed.barrier()
     data, meta, fingerprints = load_data(recipe)
     stream = BatchStream(data, meta, recipe)
     torch.manual_seed(recipe['seed'])
@@ -150,9 +183,16 @@ def train(settings, output_dir, stop_after_step=None, deadline=None, commit=lamb
         model.load_state_dict(state['model'])
         optimizer.load_state_dict(state['optimizer'])
         stream.load_state_dict(state['sampler'])
-        torch.set_rng_state(state['torch_rng'])
+        rng = state.get('rank_rng', [dict(torch_rng=state['torch_rng'], cuda_rng=state['cuda_rng'])])
+        if len(rng) != distributed.world_size():
+            raise ValueError('Resume requires the same world size')
+        rng = rng[distributed.rank()]
+        torch.set_rng_state(rng['torch_rng'])
         if recipe['device'] == 'cuda':
-            torch.cuda.set_rng_state_all(state['cuda_rng'])
+            if len(rng['cuda_rng']) == 1:
+                torch.cuda.set_rng_state(rng['cuda_rng'][0])
+            else:
+                torch.cuda.set_rng_state_all(rng['cuda_rng'])
         history, trained = state['history'], state['trained_tokens']
         best, best_step = state['best_metric'], state['best_step']
         del state
@@ -163,26 +203,38 @@ def train(settings, output_dir, stop_after_step=None, deadline=None, commit=lamb
         checkpoint_meta.update(model_type='student', model_family='student_tied', qat=False)
 
     def save(name, resumable=False):
+        rng_states = None
+        if resumable:
+            rng = dict(torch_rng=torch.get_rng_state(),
+                cuda_rng=[torch.cuda.get_rng_state()] if recipe['device'] == 'cuda' else [])
+            rng_states = [None] * distributed.world_size()
+            if distributed.world_size() > 1:
+                torch.distributed.all_gather_object(rng_states, rng)
+            else:
+                rng_states = [rng]
+        if distributed.rank() != 0:
+            return
         state = dict(model=model.state_dict(), meta=checkpoint_meta, recipe=recipe,
             fingerprints=fingerprints, step=stream.step, total_steps=stream.total_steps,
             sampler=stream.state_dict(), best_metric=best, best_step=best_step,
             trained_tokens=trained.copy(), history=history)
         if resumable:
-            state.update(optimizer=optimizer.state_dict(), torch_rng=torch.get_rng_state(),
-                cuda_rng=torch.cuda.get_rng_state_all() if recipe['device'] == 'cuda' else [])
+            state.update(rank_rng=rng_states, optimizer=optimizer.state_dict(), **rng_states[0])
         temporary = output / (name + '.partial')
         torch.save(state, temporary)
         temporary.replace(output / name)
 
     def validation():
         nonlocal best, best_step
-        metrics = evaluate(compiled, data, meta, recipe, fingerprints)
+        metrics = evaluate(compiled, data, meta, recipe, fingerprints) if distributed.rank() == 0 else None
+        metrics = distributed.broadcast(metrics)
         history.append(dict(step=stream.step, **metrics))
         if metrics['selection_ce'] < best:
             best, best_step = metrics['selection_ce'], stream.step
             save('best.pt')
         write_json(output / 'metrics.json', history)
-        print('VALIDATION=' + json.dumps(history[-1]), flush=True)
+        if distributed.rank() == 0:
+            print('VALIDATION=' + json.dumps(history[-1]), flush=True)
 
     if not history:
         validation()
@@ -190,7 +242,8 @@ def train(settings, output_dir, stop_after_step=None, deadline=None, commit=lamb
         commit()
     started = time.monotonic()
     while stream.step < stream.total_steps:
-        if (stop_after_step is not None and stream.step >= stop_after_step) or (deadline is not None and time.time() >= deadline):
+        if distributed.stop_requested((stop_after_step is not None and stream.step >= stop_after_step) or
+                (deadline is not None and time.time() >= deadline), recipe['device']):
             break
         lr = learning_rate(stream.step + 1, stream.total_steps, recipe)
         for group in optimizer.param_groups:
@@ -207,7 +260,8 @@ def train(settings, output_dir, stop_after_step=None, deadline=None, commit=lamb
             progress = dict(step=stream.step, total_steps=stream.total_steps, loss=loss,
                 learning_rate=lr, trained_tokens=trained.copy(), elapsed_seconds=time.monotonic() - started)
             write_json(output / 'progress.json', progress)
-            print('TRAIN_PROGRESS=' + json.dumps(progress), flush=True)
+            if distributed.rank() == 0:
+                print('TRAIN_PROGRESS=' + json.dumps(progress), flush=True)
         if stream.step % recipe['eval_interval'] == 0:
             validation()
         if stream.step % recipe['checkpoint_interval'] == 0:
@@ -260,7 +314,9 @@ def main():
             parser.error('--sources contains an unknown dataset')
         settings['datasets'] = {name: settings['datasets'][name] for name in names}
     deadline = time.time() + args.time_limit if args.time_limit is not None else None
-    print(json.dumps(train(settings, args.output, args.stop_after_step, deadline, commit_volume), indent=2))
+    report = train(settings, args.output, args.stop_after_step, deadline, commit_volume)
+    if int(os.getenv('RANK', '0')) == 0:
+        print(json.dumps(report, indent=2))
 
 
 if __name__ == '__main__':
